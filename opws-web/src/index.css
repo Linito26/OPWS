@@ -1,0 +1,5 @@
+@import "tailwindcss";
+
+/* ====== estilos globales opcionales ====== */
+:root { --radius: 1rem; }
+html, body, #root { height: 100%; }
