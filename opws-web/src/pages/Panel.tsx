@@ -1,10 +1,14 @@
-import { useEffect, useMemo, useState } from "react";
+// src/pages/Panel.tsx
+import { useEffect, useMemo, useState, useEffect as ReactUseEffect } from "react";
 import { http } from "../config/api";
 import MapStations from "../components/MapStations";
 
-/* =========================================
-   Tipos
-========================================= */
+// (para el editor de waypoint)
+import { MapContainer, TileLayer, useMap, useMapEvents } from "react-leaflet";
+import L from "leaflet";
+import "leaflet/dist/leaflet.css";
+
+/* ================= Tipos ================= */
 type Estacion = {
   id: number;
   codigo: string | null;
@@ -15,9 +19,7 @@ type Estacion = {
 type Point = { t: string; v: number };
 type SeriesMap = Record<string, Point[]>;
 
-/* =========================================
-   Constantes de series (leyenda)
-========================================= */
+/* ================= Series/leyenda ================= */
 const KEYS = [
   { key: "rainfall_mm", label: "Precipitación (mm)", color: "#059669" },
   { key: "air_temp_c", label: "Temp. aire (°C)", color: "#f43f5e" },
@@ -26,64 +28,37 @@ const KEYS = [
   { key: "luminosity_lx", label: "Luminosidad (lx)", color: "#f59e0b" },
 ] as const;
 
-/* =========================================
-   DEMO: configuración y utilidades
-   - Toggle manual en UI
-   - ?demo=1 en URL
-   - Persistencia en localStorage
-   - Estación Demo por si falla /estaciones
-   - Mock determinístico por fecha + id estación
-========================================= */
+/* ================= DEMO helpers ================= */
 const DEMO_PARAM = "demo";
 const DEMO_LS_KEY = "opws_demo";
 const DEMO_STATION: Estacion = {
   id: -1,
   codigo: "DEMO",
   nombre: "Estación Demo",
-  latitud: 15.726,  // coords cualquiera en Izabal
+  latitud: 15.726,
   longitud: -88.599,
 };
-
 function getInitialDemoFlag() {
   const url = new URL(window.location.href);
   if (url.searchParams.get(DEMO_PARAM) === "1") return true;
   const saved = localStorage.getItem(DEMO_LS_KEY);
   return saved ? saved === "1" : false;
 }
-
 function setDemoPersist(on: boolean) {
   localStorage.setItem(DEMO_LS_KEY, on ? "1" : "0");
 }
 
-/* PRNG determinístico (Mulberry32) para que el mismo día/estación
-   siempre produzca la misma curva (evita “bailoteo” en cada render). */
-function mulberry32(seed: number) {
-  return function () {
-    let t = (seed += 0x6D2B79F5);
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-/* Hash simple de string → number para seed */
-function strHash(s: string): number {
-  let h = 2166136261 >>> 0;
-  for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  return h >>> 0;
-}
-
-/* =========================================
-   Componente principal
-========================================= */
+/* ================= Principal ================= */
 export default function Panel() {
   const [estaciones, setEstaciones] = useState<Estacion[]>([]);
   const [estacionId, setEstacionId] = useState<number | null>(null);
   const [date, setDate] = useState<string>(() =>
     new Date().toISOString().slice(0, 10)
+  );
+
+  // selección de variables visibles
+  const [enabled, setEnabled] = useState<Record<string, boolean>>(
+    () => Object.fromEntries(KEYS.map(k => [k.key, true])) as Record<string, boolean>
   );
 
   const [series, setSeries] = useState<SeriesMap>({});
@@ -94,7 +69,19 @@ export default function Panel() {
   const [demoMode, setDemoMode] = useState<boolean>(getInitialDemoFlag());
   const [usingMock, setUsingMock] = useState(false);
 
-  /* ================= Estaciones ================= */
+  // Editor de ubicación
+  const selected = estaciones.find(e => e.id === estacionId) || null;
+  const [editing, setEditing] = useState(false);
+  const [draftPos, setDraftPos] = useState<{lat: number, lng: number} | null>(null);
+  useEffect(() => {
+    if (selected && isNum(selected.latitud) && isNum(selected.longitud)) {
+      setDraftPos({ lat: Number(selected.latitud), lng: Number(selected.longitud) });
+    } else {
+      setDraftPos(null);
+    }
+  }, [selected?.id]);
+
+  /* ============ Estaciones ============ */
   useEffect(() => {
     (async () => {
       try {
@@ -103,7 +90,6 @@ export default function Panel() {
         setEstaciones(list);
         if (estacionId == null) setEstacionId(list[0].id);
       } catch {
-        // Si no hay API, garantizamos al menos la estación demo
         setEstaciones([DEMO_STATION]);
         setEstacionId(DEMO_STATION.id);
         setErr("No se pudieron cargar las estaciones (modo demo disponible).");
@@ -112,7 +98,7 @@ export default function Panel() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  /* ================= Series ================= */
+  /* ============ Series (día seleccionado) ============ */
   useEffect(() => {
     if (!estacionId || !date) return;
 
@@ -143,7 +129,6 @@ export default function Panel() {
           setUsingMock(!data || !Object.values(data).some((v) => (v?.length ?? 0) > 0));
         }
       } catch (e: any) {
-        // Si falla la API, llenamos con mock
         setErr(e?.message || "No se pudieron cargar las series.");
         setSeries(mockDaySeries(date, estacionId));
         setUsingMock(true);
@@ -153,7 +138,7 @@ export default function Panel() {
     })();
   }, [estacionId, date, demoMode]);
 
-  /* ================= KPIs ================= */
+  /* ============ KPIs ============ */
   const summary = useMemo(() => {
     const get = (k: string) => (series[k] ?? []).map((p) => p.v);
     const sum = (a: number[]) => a.reduce((x, y) => x + y, 0);
@@ -167,8 +152,7 @@ export default function Panel() {
     };
   }, [series]);
 
-  /* ================= Mapa ================= */
-  const selected = estaciones.find((e) => e.id === estacionId) || null;
+  /* ============ Mapa (vista) ============ */
   const center =
     selected && isNum(selected.latitud) && isNum(selected.longitud)
       ? { lat: Number(selected.latitud), lng: Number(selected.longitud) }
@@ -181,7 +165,30 @@ export default function Panel() {
     lng: isNum(e.longitud) ? Number(e.longitud) : null,
   }));
 
-  /* ================= Render ================= */
+  /* ============ Guardar ubicación (optimista) ============ */
+  async function saveDraftPosition() {
+    if (!estacionId || !draftPos) return;
+    try {
+      const body = { latitud: draftPos.lat, longitud: draftPos.lng };
+      // intenta endpoint admin, si 404 prueba público
+      try {
+        await http(`/admin/estaciones/${estacionId}`, { method: "PUT", body: JSON.stringify(body) });
+      } catch {
+        await http(`/estaciones/${estacionId}`, { method: "PUT", body: JSON.stringify(body) });
+      }
+      // actualiza el listado en memoria
+      setEstaciones(prev =>
+        prev.map(e => e.id === estacionId ? { ...e, latitud: body.latitud, longitud: body.longitud } : e)
+      );
+      setEditing(false);
+      alert("Ubicación actualizada.");
+    } catch (e: any) {
+      console.warn(e);
+      alert("No se pudo guardar la ubicación en la API. Se mantuvo el valor local.");
+    }
+  }
+
+  /* ============ Render ============ */
   return (
     <div className="min-h-[calc(100vh-64px)]">
       {/* Hero */}
@@ -279,20 +286,31 @@ export default function Panel() {
               <Kpi title="Luminosidad" value={`${fmt(summary.luminosity_lx)} lx`} color="#f59e0b" />
             </div>
 
-            {/* Gráfica + Mapa */}
+            {/* Gráfica + leyenda clickeable */}
             <div className="rounded-xl border border-neutral-200 bg-white/70 p-3 sm:p-4">
-              <ChartMulti series={series} height={280} />
-              <div className="mt-3 mb-4 flex flex-wrap gap-3 text-xs">
-                {KEYS.map(({ key, label, color }) => (
-                  <span key={key} className="inline-flex items-center gap-2 text-neutral-700">
-                    <span className="w-3 h-3 rounded-full" style={{ background: color }} />
-                    {label}
-                  </span>
-                ))}
+              <ChartMulti series={series} enabled={enabled} height={280} />
+
+              <div className="mt-3 mb-4 flex flex-wrap gap-2">
+                {KEYS.map(({ key, label, color }) => {
+                  const on = !!enabled[key];
+                  return (
+                    <button
+                      key={key}
+                      onClick={() => setEnabled(e => ({ ...e, [key]: !e[key] }))}
+                      className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs sm:text-sm transition
+                        ${on ? "border-neutral-300 bg-neutral-50 text-neutral-800" : "border-neutral-200 bg-white/60 text-neutral-400 opacity-60"}`}
+                      title={on ? "Ocultar" : "Mostrar"}
+                    >
+                      <span className="w-3 h-3 rounded-full" style={{ background: color, opacity: on ? 1 : 0.4 }} />
+                      {label}
+                    </button>
+                  );
+                })}
               </div>
 
               <div className="h-px w-full bg-neutral-200 my-2" />
 
+              {/* Mapa de estaciones */}
               <div className="mt-3">
                 <MapStations
                   center={center}
@@ -306,6 +324,46 @@ export default function Panel() {
                     La estación seleccionada no tiene coordenadas cargadas.
                   </div>
                 )}
+
+                {/* Editor de waypoint */}
+                <div className="mt-4 rounded-lg border border-neutral-200 p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="text-sm text-neutral-700">
+                      <strong>Ubicación de la estación</strong>{" "}
+                      <span className="text-neutral-500">
+                        {draftPos ? `(lat ${draftPos.lat.toFixed(6)}, lng ${draftPos.lng.toFixed(6)})` : "(sin coordenadas)"}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setEditing(v => !v)}
+                        className="px-3 py-1.5 text-sm rounded-md border bg-white hover:bg-neutral-50"
+                      >
+                        {editing ? "Cerrar editor" : "Editar ubicación"}
+                      </button>
+                      <button
+                        onClick={saveDraftPosition}
+                        disabled={!draftPos}
+                        className="px-3 py-1.5 text-sm rounded-md bg-emerald-600 text-white disabled:opacity-50"
+                      >
+                        Guardar ubicación
+                      </button>
+                    </div>
+                  </div>
+
+                  {editing && (
+                    <div className="mt-3">
+                      <EditorMap
+                        initial={draftPos ?? { lat: center?.lat ?? 15.726, lng: center?.lng ?? -88.599 }}
+                        onChange={(p) => setDraftPos(p)}
+                        height={320}
+                      />
+                      <div className="mt-2 text-xs text-neutral-500">
+                        Haz clic en el mapa para mover el waypoint o arrástralo; luego presiona <em>Guardar ubicación</em>.
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           </div>
@@ -315,9 +373,7 @@ export default function Panel() {
   );
 }
 
-/* =========================================
-   Helpers & componentes
-========================================= */
+/* ================== Subcomponentes ================== */
 function Kpi({ title, value, color }: { title: string; value: string; color: string }) {
   return (
     <div className="rounded-xl border border-neutral-200/70 bg-white/80 backdrop-blur-sm shadow-sm p-4">
@@ -335,15 +391,25 @@ function fmt(n: number) {
   return String(n);
 }
 
-function ChartMulti({ series, height = 220 }: { series: SeriesMap; height?: number }) {
-  const allPoints = Object.values(series).flat();
-  if (allPoints.length === 0) {
+/** SVG simple para múltiples series; respeta "enabled" */
+function ChartMulti({
+  series,
+  enabled,
+  height = 220,
+}: {
+  series: SeriesMap;
+  enabled: Record<string, boolean>;
+  height?: number;
+}) {
+  const visibleKeys = KEYS.map(k => k.key).filter(k => enabled[k]);
+  const allVisible = visibleKeys.flatMap(k => series[k] ?? []);
+  if (allVisible.length === 0) {
     return <div className="h-[220px] grid place-items-center text-neutral-400 text-sm">Sin datos</div>;
   }
-  const minT = Math.min(...allPoints.map((p) => +new Date(p.t)));
-  const maxT = Math.max(...allPoints.map((p) => +new Date(p.t)));
-  const minV = Math.min(...allPoints.map((p) => p.v));
-  const maxV = Math.max(...allPoints.map((p) => p.v));
+  const minT = Math.min(...allVisible.map((p) => +new Date(p.t)));
+  const maxT = Math.max(...allVisible.map((p) => +new Date(p.t)));
+  const minV = Math.min(...allVisible.map((p) => p.v));
+  const maxV = Math.max(...allVisible.map((p) => p.v));
   const pad = 24;
   const width = 960;
   const tRange = Math.max(1, maxT - minT);
@@ -364,7 +430,7 @@ function ChartMulti({ series, height = 220 }: { series: SeriesMap; height?: numb
         ))}
       </g>
       {KEYS.map(({ key, color }) =>
-        (series[key] ?? []).length ? (
+        enabled[key] && (series[key] ?? []).length ? (
           <path
             key={key}
             d={pathFor(series[key] as any)}
@@ -380,66 +446,106 @@ function ChartMulti({ series, height = 220 }: { series: SeriesMap; height?: numb
   );
 }
 
-/* =========================================
-   MOCK: día determinístico y realista para palma africana
-   - Temp aire: 22–34 °C con ciclo diario
-   - HR: 65–95 %
-   - Humedad suelo: 35–80 %
-   - Luminosidad: 0 lx noche, pico ~60,000 lx mediodía (suave)
-   - Lluvia: eventos esporádicos (0–6 mm/h evento)
-========================================= */
+/* ===== Editor de ubicación sin usar ref en <Marker/> (compat react-leaflet v5) ===== */
+function EditorMap({
+  initial,
+  onChange,
+  height = 360,
+}: {
+  initial: { lat: number; lng: number };
+  onChange: (p: { lat: number; lng: number }) => void;
+  height?: number;
+}) {
+  function ClickHandler() {
+    useMapEvents({
+      click(e) {
+        onChange({ lat: e.latlng.lat, lng: e.latlng.lng });
+      },
+    });
+    return null;
+  }
+
+  function LiveMarker({ pos }: { pos: { lat: number; lng: number } }) {
+    const map = useMap();
+    const markerRef = (LiveMarker as any)._ref as L.Marker | undefined;
+
+    if (!markerRef) {
+      const m = L.marker([pos.lat, pos.lng], { draggable: true }).addTo(map);
+      m.on("dragend", () => {
+        const ll = m.getLatLng();
+        onChange({ lat: ll.lat, lng: ll.lng });
+      });
+      (LiveMarker as any)._ref = m;
+    } else {
+      markerRef.setLatLng([pos.lat, pos.lng]);
+    }
+
+    ReactUseEffect(() => {
+      return () => {
+        const m: L.Marker | undefined = (LiveMarker as any)._ref;
+        if (m) {
+          m.remove();
+          (LiveMarker as any)._ref = undefined;
+        }
+      };
+    }, []);
+
+    return null;
+  }
+
+  return (
+    <div className="w-full" style={{ height }}>
+      <MapContainer
+        center={[initial.lat, initial.lng]}
+        zoom={13}
+        style={{ height: "100%", width: "100%", borderRadius: 12 }}
+      >
+        <TileLayer
+          attribution="&copy; OpenStreetMap contributors"
+          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+        />
+        <ClickHandler />
+        <LiveMarker pos={initial} />
+      </MapContainer>
+    </div>
+  );
+}
+
+/* ================= Mock diario ================= */
 function mockDaySeries(yyyy_mm_dd: string, estacionId: number | null): SeriesMap {
-  // 48 puntos ~ cada 30 minutos
   const base = new Date(yyyy_mm_dd + "T00:00:00Z");
   const times = Array.from({ length: 48 }, (_, i) => new Date(+base + (i * 24 * 60 * 60 * 1000) / 47));
-
-  // Seed = fecha + estación para que cambie por día y por estación
-  const seed = strHash(`${yyyy_mm_dd}#${estacionId ?? "x"}`);
-  const rnd = mulberry32(seed);
+  const rnd = mulberry32(strHash(`${yyyy_mm_dd}#${estacionId ?? "x"}`));
   const rand = () => rnd();
-
   const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
-  const sin = (i: number, period: number, phase = 0) => Math.sin((2 * Math.PI * (i + phase)) / period);
 
-  // Curvas base
   const air = times.map((t, i) => {
-    // Temperatura: base 26, amplitud 6–8, pico a las 14:00
     const amp = 6 + rand() * 2;
     const v = 26 + amp * Math.sin(((i - 14) / 48) * 2 * Math.PI);
-    // Ruido suave
     return { t: t.toISOString(), v: +(v + (rand() - 0.5) * 0.8).toFixed(1) };
   });
-
   const hr = times.map((t, i) => {
-    // HR inversa a temp + ruido
     const baseHr = 80 - 10 * Math.sin(((i - 14) / 48) * 2 * Math.PI);
     const v = clamp(baseHr + (rand() - 0.5) * 6, 65, 95);
     return { t: t.toISOString(), v: Math.round(v) };
   });
-
   const soil = times.map((t, i) => {
-    // Humedad de suelo lenta, con pequeñas ondulaciones
-    const baseSoil = 55 + 8 * sin(i, 48, 6) + 3 * sin(i, 12);
+    const baseSoil = 55 + 8 * Math.sin((i / 48) * 2 * Math.PI) + 3 * Math.sin((i / 12) * 2 * Math.PI);
     const v = clamp(baseSoil + (rand() - 0.5) * 2, 35, 80);
     return { t: t.toISOString(), v: Math.round(v) };
   });
-
   const lux = times.map((t, i) => {
-    // Día: campana entre ~6:00–18:00, pico ~60k
     const hour = (i / 48) * 24;
     const daylight = Math.max(0, Math.sin(((hour - 6) / 12) * Math.PI));
     const v = Math.round(60000 * daylight + (rand() - 0.5) * 1500);
     return { t: t.toISOString(), v: Math.max(0, v) };
   });
-
   const rain = times.map((t) => {
-    // 20% del día con chubascos; cada evento 0–3.5 mm/intervalo
-    const event = rand() < 0.2 && rand() < 0.25; // más raro
+    const event = rand() < 0.2 && rand() < 0.25;
     const v = event ? +(rand() * 3.5).toFixed(2) : 0;
     return { t: t.toISOString(), v };
   });
 
-  // Si llovió, sube humedad de suelo un poco a partir de ese punto
   let acc = 0;
   for (let i = 0; i < rain.length; i++) {
     acc = Math.max(0, acc * 0.9) + rain[i].v * 0.6;
@@ -455,6 +561,26 @@ function mockDaySeries(yyyy_mm_dd: string, estacionId: number | null): SeriesMap
   };
 }
 
+/* ================= Utils ================= */
+function mulberry32(seed: number) {
+  return function () {
+    let t = (seed += 0x6D2B79F5);
+    // @ts-ignore
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    // @ts-ignore
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+function strHash(s: string): number {
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    // @ts-ignore
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
 function isNum(x: any): x is number {
   return typeof x === "number" && Number.isFinite(x);
 }

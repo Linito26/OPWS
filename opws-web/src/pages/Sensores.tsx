@@ -1,5 +1,5 @@
 // src/pages/Sensores.tsx
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { http } from "../config/api";
 import {
   ResponsiveContainer,
@@ -17,11 +17,11 @@ import {
 
 /* ===== catálogo de sensores ===== */
 const SENSORS = [
-  { key: "rainfall_mm",       label: "Precipitación",     unit: "mm", color: "#059669", decimals: 2, chart: "bar"  as const },
-  { key: "air_temp_c",        label: "Temp. aire",        unit: "°C", color: "#f43f5e", decimals: 2, chart: "line" as const },
-  { key: "air_humidity_pct",  label: "Humedad relativa",  unit: "%",  color: "#0ea5e9", decimals: 0, chart: "line" as const },
-  { key: "soil_moisture_pct", label: "Humedad del suelo", unit: "%",  color: "#65a30d", decimals: 0, chart: "line" as const },
-  { key: "luminosity_lx",     label: "Luminosidad",       unit: "min",color: "#f59e0b", decimals: 0, chart: "bar"  as const }, // <- minutos
+  { key: "rainfall_mm",       label: "Precipitación",     unit: "mm",  color: "#059669", decimals: 2, chart: "bar"  as const },
+  { key: "air_temp_c",        label: "Temp. aire",        unit: "°C",  color: "#f43f5e", decimals: 2, chart: "line" as const },
+  { key: "air_humidity_pct",  label: "Humedad relativa",  unit: "%",   color: "#0ea5e9", decimals: 0, chart: "line" as const },
+  { key: "soil_moisture_pct", label: "Humedad del suelo", unit: "%",   color: "#65a30d", decimals: 0, chart: "line" as const },
+  { key: "luminosity_lx",     label: "Luminosidad",       unit: "min", color: "#f59e0b", decimals: 0, chart: "bar"  as const }, // minutos
 ] as const;
 
 type SensorKey = typeof SENSORS[number]["key"];
@@ -53,7 +53,7 @@ export default function Sensores() {
 
   // datos
   const [series, setSeries] = useState<SeriesMap>({} as SeriesMap);
-  const [lumRaw, setLumRaw] = useState<Point[]>([]); // luminosidad en bruto para calcular minutos
+  const [lumRaw, setLumRaw] = useState<Point[]>([]); // luminosidad en bruto
   const [loading, setLoading] = useState(false);
 
   // cargar estaciones
@@ -108,7 +108,7 @@ export default function Sensores() {
         const data = await http<SeriesMap>(`/series?${qs.toString()}`);
         setSeries(fillMissingKeys(data));
 
-        // 2) luminosidad en RAW para calcular minutos (si ya es raw, la tomamos de data)
+        // 2) RAW para luminosidad->minutos
         if (group === "raw") {
           setLumRaw(data.luminosity_lx ?? []);
         } else {
@@ -123,7 +123,7 @@ export default function Sensores() {
           setLumRaw(lumOnly.luminosity_lx ?? []);
         }
       } catch {
-        // mock para ver el diseño si el backend aún no está
+        // mock para ver el diseño
         const mock = mockRangeSeries(fromISO, toISO, group);
         setSeries(mock);
         setLumRaw(mock.luminosity_lx);
@@ -135,11 +135,7 @@ export default function Sensores() {
 
   /* datos transformados para gráfica (luminosidad => minutos) */
   const transformed = useMemo(() => {
-    const out: Record<
-      string,
-      { data: { ts: number; value: number }[]; unit: string }
-    > = {};
-
+    const out: Record<string, { data: { ts: number; value: number }[]; unit: string }> = {};
     for (const s of SENSORS) {
       if (s.key === "luminosity_lx") {
         const t = transformLuminosityToMinutes(lumRaw, group, LUX_ON_THRESHOLD);
@@ -157,6 +153,49 @@ export default function Sensores() {
     return out;
   }, [series, lumRaw, group]);
 
+  /* ===== Exportar XLSX (todas las series activas) ===== */
+  async function exportXLSX() {
+    const dateLabel = `${fromISO.slice(0,10)}_a_${toISO.slice(0,10)}`;
+    try {
+      // carga dinámica para no inflar el bundle
+      const XLSX = await import("xlsx");
+      const wb = XLSX.utils.book_new();
+
+      for (const s of SENSORS) {
+        if (!active[s.key]) continue;
+        const pack = transformed[s.key];
+        const rows = (pack?.data ?? []).map(r => ({
+          FechaHoraISO: new Date(r.ts).toISOString(),
+          Valor: r.value,
+          Unidad: pack?.unit || s.unit,
+        }));
+        const ws = XLSX.utils.json_to_sheet(rows.length ? rows : [{ Nota: "Sin datos en el rango" }]);
+        XLSX.utils.book_append_sheet(wb, ws, s.label.slice(0,31));
+      }
+
+      XLSX.writeFile(wb, `OPWS_series_${dateLabel}.xlsx`);
+    } catch (e) {
+      console.warn("xlsx no disponible, exportando CSV de respaldo.", e);
+      // fallback: un CSV por sensor (combinado en uno con separador entre hojas)
+      let csv = `OPWS Export ${dateLabel}\n`;
+      for (const s of SENSORS) {
+        if (!active[s.key]) continue;
+        const pack = transformed[s.key];
+        csv += `\n=== ${s.label} ===\nFechaHoraISO,Valor,Unidad\n`;
+        const rows = (pack?.data ?? []).map(r =>
+          `${new Date(r.ts).toISOString()},${r.value},${pack?.unit || s.unit}`
+        );
+        csv += rows.length ? rows.join("\n") : "Sin datos\n";
+      }
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `OPWS_series_${dateLabel}.csv`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    }
+  }
+
   return (
     <div className="min-h-[calc(100vh-64px)]">
       {/* ===== Hero ===== */}
@@ -164,7 +203,7 @@ export default function Sensores() {
         <div className="absolute inset-0 bg-linear-to-r from-emerald-600 via-emerald-500 to-emerald-600" />
         <div className="absolute inset-0 opacity-20" style={{ backgroundImage: "radial-gradient(transparent 60%, #000 61%)" }} />
         <div className="relative px-5 sm:px-8 py-8 text-white">
-          <div className="max-w-6xl mx-auto flex items-center gap-4">
+          <div className="max-w-7xl mx-auto flex items-center gap-4">
             <div className="w-10 h-10 rounded-full bg-white/20 grid place-items-center backdrop-blur">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
                 <path d="M4 13c0-5 4-9 10-9h6v6c0 6-4 10-10 10S4 19 4 13Z" stroke="currentColor" strokeWidth="2" />
@@ -180,16 +219,19 @@ export default function Sensores() {
       </section>
 
       {/* ===== Contenido ===== */}
-      <main className="max-w-6xl mx-auto px-5 sm:px-8 py-8 space-y-6">
-        {/* Tarjeta compacta: Todos los sensores + filtros */}
+      <main className="max-w-7xl mx-auto px-5 sm:px-8 py-8 space-y-6">
+        {/* Tarjeta: filtros, chips y botón de exportación */}
         <div className="rounded-2xl border border-neutral-200/80 bg-white/85 backdrop-blur-sm shadow-sm">
           <div className="p-5 sm:p-6">
-            <div className="flex flex-col gap-4 md:gap-3 md:flex-row md:items-center md:justify-between">
-              <div className="flex items-center gap-3">
-                <h3 className="text-base sm:text-lg font-semibold text-neutral-900">Todos los sensores</h3>
-                <div className="hidden md:block text-neutral-300">|</div>
-                {/* chips de sensores */}
-                <div className="flex flex-wrap gap-2">
+            <div className="grid gap-4 md:gap-3 md:grid-cols-12 md:items-center">
+              {/* IZQUIERDA: título + chips */}
+              <div className="md:col-span-7 lg:col-span-8 flex items-start md:items-center gap-3 flex-wrap">
+                <h3 className="text-base sm:text-lg font-semibold text-neutral-900 shrink-0">
+                  Todos los sensores
+                </h3>
+                <div className="hidden md:block text-neutral-300 select-none">|</div>
+
+                <div className="flex flex-wrap gap-2 w-full md:w-auto">
                   {SENSORS.map(s => {
                     const on = !!active[s.key];
                     return (
@@ -211,8 +253,8 @@ export default function Sensores() {
                 </div>
               </div>
 
-              {/* Controles */}
-              <div className="flex flex-wrap gap-2 sm:gap-3 items-center">
+              {/* DERECHA: estación + rango + agrupación + XLSX */}
+              <div className="md:col-span-5 lg:col-span-4 flex flex-wrap gap-2 sm:gap-3 items-center justify-start md:justify-end">
                 <select
                   className="rounded-lg border border-neutral-300 px-2.5 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500/30"
                   value={estacionId ?? ""}
@@ -225,10 +267,8 @@ export default function Sensores() {
                   ))}
                 </select>
 
-                {/* rango rápido */}
                 <RangePills preset={preset} setPreset={setPreset} />
 
-                {/* rango custom */}
                 {preset === "custom" && (
                   <>
                     <input
@@ -247,7 +287,6 @@ export default function Sensores() {
                   </>
                 )}
 
-                {/* agrupación */}
                 <select
                   className="rounded-lg border border-neutral-300 px-2.5 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500/30"
                   value={group}
@@ -257,6 +296,14 @@ export default function Sensores() {
                   <option value="hour">Cada hora</option>
                   <option value="day">Diario</option>
                 </select>
+
+                <button
+                  onClick={exportXLSX}
+                  className="ml-1 px-3 py-2 text-sm rounded-md border bg-white hover:bg-neutral-50"
+                  title="Exportar todas las series activas en XLSX"
+                >
+                  Exportar XLSX
+                </button>
               </div>
             </div>
           </div>
@@ -284,6 +331,7 @@ export default function Sensores() {
                   decimals={s.decimals}
                   data={data}
                   chart={s.chart}
+                  fileBase={`opws_${s.key}`}
                 />
               );
             })}
@@ -336,6 +384,7 @@ function ChartCard({
   decimals = 2,
   data,
   chart = "line",
+  fileBase = "opws_chart",
 }: {
   title: string;
   unit: string;
@@ -343,6 +392,7 @@ function ChartCard({
   decimals?: number;
   data: { ts: number; value: number }[];
   chart?: "line" | "bar";
+  fileBase?: string;
 }) {
   const id = useMemo(() => `g${Math.random().toString(36).slice(2)}`, []);
   const fmtTick = (ms: number) => {
@@ -354,15 +404,61 @@ function ChartCard({
   };
   const fmtVal = (n: number) => (decimals === 0 ? Math.round(n) : Number(n).toFixed(decimals));
   const barSize = Math.max(3, Math.min(18, Math.floor(600 / Math.max(1, data.length))));
+  const holderRef = useRef<HTMLDivElement>(null);
+
+  const downloadPNG = async () => {
+    const svg = holderRef.current?.querySelector("svg");
+    if (!svg) return;
+
+    const serializer = new XMLSerializer();
+    const svgStr = serializer.serializeToString(svg);
+    const svgBlob = new Blob([svgStr], { type: "image/svg+xml;charset=utf-8" });
+    const url = URL.createObjectURL(svgBlob);
+
+    const img = new Image();
+    img.onload = () => {
+      const rect = svg.getBoundingClientRect();
+      const scale = 2; // @2x
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(rect.width * scale));
+      canvas.height = Math.max(1, Math.round(rect.height * scale));
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      // fondo blanco para evitar transparencias
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      canvas.toBlob((blob) => {
+        if (!blob) return;
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = `${fileBase}.png`;
+        a.click();
+        URL.revokeObjectURL(a.href);
+        URL.revokeObjectURL(url);
+      }, "image/png");
+    };
+    img.onerror = () => URL.revokeObjectURL(url);
+    img.src = url;
+  };
 
   return (
     <div className="rounded-2xl border border-neutral-200/80 bg-white/80 backdrop-blur-sm shadow-sm">
       <div className="p-4 sm:p-5 flex items-center justify-between">
         <h3 className="text-base sm:text-lg font-semibold text-neutral-900">{title}</h3>
-        <span className="w-2.5 h-2.5 rounded-full" style={{ background: color }} />
+        <div className="flex items-center gap-2">
+          <button
+            onClick={downloadPNG}
+            className="px-2.5 py-1.5 text-xs rounded-md border bg-white hover:bg-neutral-50"
+            title="Descargar PNG"
+          >
+            PNG
+          </button>
+          <span className="w-2.5 h-2.5 rounded-full" style={{ background: color }} />
+        </div>
       </div>
 
-      <div className="px-3 sm:px-4 pb-4">
+      <div ref={holderRef} className="px-3 sm:px-4 pb-4">
         {data.length === 0 ? (
           <div className="h-[220px] grid place-items-center text-neutral-400 text-sm">Sin datos</div>
         ) : (

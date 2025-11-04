@@ -14,6 +14,13 @@ function normalizeRole(v?: string | null): "ADMINISTRADOR" | "VISUALIZADOR" | ""
   return "";
 }
 
+/** Extrae el rol del usuario, aceptando user.rol (ES) o user.role (EN) */
+function extractUserRole(user: any): string | null {
+  if (!user) return null;
+  // prioriza 'rol' pero acepta 'role'
+  return (user.rol ?? user.role ?? null) as string | null;
+}
+
 type Props = {
   children: ReactNode;
   /** Roles permitidos (por defecto permite ambos: admin/visualizador en EN/ES) */
@@ -30,26 +37,27 @@ export default function PrivateRoute({
   const { isAuthenticated, user, mustChangePassword } = useAuth();
   const loc = useLocation();
 
-  // No autenticado → a login
+  // 1) No autenticado → login
   if (!isAuthenticated) {
     return <Navigate to="/login" replace state={{ from: loc }} />;
   }
 
-  // Debe cambiar contraseña → redirige a /change-password (salvo bypass o si ya está ahí)
+  // 2) Debe cambiar contraseña → forzar /change-password (salvo bypass o si ya está ahí)
   if (mustChangePassword && !bypassMCP && loc.pathname !== "/change-password") {
     return <Navigate to="/change-password" replace state={{ from: loc }} />;
   }
 
-  // Validación de rol (normalizamos EN/ES)
-  const roleCanon = normalizeRole(user?.rol);
+  // 3) Validación de rol (si allow viene vacío → sin restricción)
+  const roleCanon = normalizeRole(extractUserRole(user));
   const allowCanon = new Set(
     (allow ?? []).map((r) => normalizeRole(String(r))).filter(Boolean)
   );
 
   if (allowCanon.size > 0 && (roleCanon === "" || !allowCanon.has(roleCanon))) {
-    // Si no tiene rol permitido, mándalo a /panel (o a una 403 si tienes)
+    // Si no tiene rol permitido, redirige a /panel (o a una 403 si implementas)
     return <Navigate to="/panel" replace />;
   }
 
+  // 4) OK
   return <>{children}</>;
 }
