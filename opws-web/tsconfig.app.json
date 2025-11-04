@@ -21,7 +21,10 @@
     "noUnusedParameters": true,
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true,
-    "noUncheckedSideEffectImports": true
+    "noUncheckedSideEffectImports": true,
+
+    /* 👇 Agrega esta línea para que cargue los tipos de Leaflet */
+    "types": ["vite/client", "leaflet"]
   },
   "include": ["src"]
 }

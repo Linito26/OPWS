@@ -1,6 +1,13 @@
+// opws-web/src/components/MapStations.tsx
 import { useMemo, useState } from "react";
-import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
+import {
+  MapContainer,
+  TileLayer,
+  Marker,
+  Popup,
+} from "react-leaflet";
 import type { LatLngExpression } from "leaflet";
+import type { MapContainerProps, TileLayerProps } from "react-leaflet"; // 👈 fuerza tipos correctos
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
@@ -21,9 +28,7 @@ type Props = {
   center: { lat: number; lng: number } | null;
   stations: MapStation[];
   height?: number;
-  /** "satellite" | "streets" (por defecto satellite para look estilo Google) */
   base?: "satellite" | "streets";
-  /** Si true, muestra un pequeño toggle de capas */
   showLayerToggle?: boolean;
 };
 
@@ -48,25 +53,37 @@ export default function MapStations({
     return [14.64, -90.51]; // fallback GUA
   }, [center, markers]);
 
-  const tile = layer === "satellite"
-    // Esri World Imagery (satélite)
-    ? {
-        url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-        attribution: "&copy; Esri",
-      }
-    // OSM (callejero)
-    : {
-        url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
-        attribution: "&copy; OpenStreetMap",
-      };
+  const tile =
+    layer === "satellite"
+      ? {
+          url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+          attribution: "© Esri",
+        }
+      : {
+          url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+          attribution: "© OpenStreetMap",
+        };
+
+  // 👇 fuerza a TS a usar los tipos de react-leaflet
+  const mapProps: MapContainerProps = {
+    center: initialCenter,
+    zoom: 12,
+    style: { width: "100%", height },
+  };
+  const tileProps: TileLayerProps = {
+    url: tile.url,
+    attribution: tile.attribution,
+  };
 
   return (
     <div className="relative w-full overflow-hidden rounded-lg">
       {showLayerToggle && (
-        <div className="absolute right-3 top-3 z-[500] flex rounded-full border bg-white/90 backdrop-blur shadow">
+        <div className="absolute right-3 top-3 z-500 flex rounded-full border bg-white/90 backdrop-blur shadow">
           <button
             onClick={() => setLayer("streets")}
-            className={`px-3 py-1 text-xs rounded-l-full ${layer === "streets" ? "bg-neutral-900 text-white" : "text-neutral-700"}`}
+            className={`px-3 py-1 text-xs rounded-l-full ${
+              layer === "streets" ? "bg-neutral-900 text-white" : "text-neutral-700"
+            }`}
             title="Callejero"
             type="button"
           >
@@ -74,7 +91,9 @@ export default function MapStations({
           </button>
           <button
             onClick={() => setLayer("satellite")}
-            className={`px-3 py-1 text-xs rounded-r-full ${layer === "satellite" ? "bg-neutral-900 text-white" : "text-neutral-700"}`}
+            className={`px-3 py-1 text-xs rounded-r-full ${
+              layer === "satellite" ? "bg-neutral-900 text-white" : "text-neutral-700"
+            }`}
             title="Satélite"
             type="button"
           >
@@ -83,8 +102,8 @@ export default function MapStations({
         </div>
       )}
 
-      <MapContainer center={initialCenter} zoom={12} style={{ width: "100%", height }}>
-        <TileLayer attribution={tile.attribution} url={tile.url} />
+      <MapContainer {...mapProps}>
+        <TileLayer {...tileProps} />
         {markers.map((s) => (
           <Marker key={s.id} position={[s.lat as number, s.lng as number]}>
             <Popup>{s.nombre}</Popup>

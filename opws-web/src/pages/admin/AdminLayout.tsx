@@ -47,7 +47,7 @@ export default function AdminLayout() {
       <div className="min-h-[calc(100vh-64px)]">
         {/* Hero */}
         <section className="relative overflow-hidden">
-          <div className="absolute inset-0 bg-gradient-to-r from-emerald-600 via-emerald-500 to-emerald-600" />
+          <div className="absolute inset-0 bg-linear-to-r from-emerald-600 via-emerald-500 to-emerald-600" />
           <div
             className="absolute inset-0 opacity-20"
             style={{ backgroundImage: "radial-gradient(transparent 60%, #000 61%)" }}

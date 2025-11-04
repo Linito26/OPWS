@@ -161,7 +161,7 @@ export default function Sensores() {
     <div className="min-h-[calc(100vh-64px)]">
       {/* ===== Hero ===== */}
       <section className="relative overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-r from-emerald-600 via-emerald-500 to-emerald-600" />
+        <div className="absolute inset-0 bg-linear-to-r from-emerald-600 via-emerald-500 to-emerald-600" />
         <div className="absolute inset-0 opacity-20" style={{ backgroundImage: "radial-gradient(transparent 60%, #000 61%)" }} />
         <div className="relative px-5 sm:px-8 py-8 text-white">
           <div className="max-w-6xl mx-auto flex items-center gap-4">
@@ -366,7 +366,7 @@ function ChartCard({
         {data.length === 0 ? (
           <div className="h-[220px] grid place-items-center text-neutral-400 text-sm">Sin datos</div>
         ) : (
-          <div className="w-full h-[320px]">
+          <div className="w-full h-80">
             <ResponsiveContainer width="100%" height="100%">
               {chart === "bar" ? (
                 <BarChart data={data} margin={{ top: 10, right: 12, bottom: 0, left: 6 }}>

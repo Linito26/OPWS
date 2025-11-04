@@ -1,12 +1,21 @@
-// Tipos mínimos para que TS no marque error si no tienes @types/leaflet
-declare module "leaflet" {
-    export type LatLngExpression =
-      | [number, number]
-      | { lat: number; lng: number }
-      | { lat: number; lon: number };
-  
-    // Export por defecto usado como "L"
-    const L: any;
-    export default L;
-  }
-  
+import * as React from "react";
+import type { LatLngExpression } from "leaflet";
+
+declare module "react-leaflet" {
+  export type MapContainerProps = {
+    center?: LatLngExpression;
+    zoom?: number;
+    style?: React.CSSProperties;
+    children?: React.ReactNode;
+  };
+  export const MapContainer: React.FC<MapContainerProps>;
+
+  export type TileLayerProps = {
+    url: string;
+    attribution?: string;
+  };
+  export const TileLayer: React.FC<TileLayerProps>;
+
+  export const Marker: React.FC<{ position: LatLngExpression; children?: React.ReactNode }>;
+  export const Popup: React.FC<{ children?: React.ReactNode }>;
+}
