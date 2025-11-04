@@ -1,4 +1,3 @@
-//src/index.ts
 import "dotenv/config";
 import express from "express";
 import cors from "cors";
@@ -8,17 +7,16 @@ import { estaciones } from "./routes/estaciones";
 import { series } from "./routes/series";
 
 import { auth } from "./routes/auth.routes";
-import { users } from "./routes/users"; // NUEVO: gestión de usuarios (ADMIN)
+import { users } from "./routes/users"; // ADMIN
 
 import { requireAuth, requirePasswordChanged } from "./middlewares/auth";
 
 const app = express();
 app.disable("x-powered-by");
 
-// CORS: en Docker normalmente no hace falta porque /api va por el reverse proxy del web.
-// Lo dejamos abierto a localhost para dev.
+// CORS
 const ALLOWED = (process.env.CORS_ORIGINS ??
-  "http://localhost:5173,http://localhost:2002")
+  "http://localhost:5173,http://localhost:2002,http://127.0.0.1:5173")
   .split(",")
   .map((s) => s.trim());
 
@@ -36,19 +34,25 @@ app.use(
 app.use(express.json({ limit: "1mb" }));
 
 /* =========================
+   Rutas de salud
+   ========================= */
+// Health interno para el healthcheck del contenedor (curl http://localhost:2002/health)
+app.get("/health", (_req, res) => res.json({ ok: true, service: "OPWS API" }));
+
+// Health detrás del proxy Nginx (frontend llama /api/health)
+app.use("/api/health", health);
+
+/* =========================
    Rutas públicas
    ========================= */
-app.use("/api/health", health);
 app.use("/api/auth", auth); // login, change-password, etc.
 
 /* =========================
    Rutas protegidas
-   - Requieren JWT válido
-   - Requieren NO tener pendiente cambio de contraseña temporal
    ========================= */
 app.use("/api/estaciones", requireAuth, requirePasswordChanged(), estaciones);
-app.use("/api/users", requireAuth, requirePasswordChanged(), users); // ADMIN crea/gestiona usuarios
-app.use("/api", requireAuth, requirePasswordChanged(), series); // p.ej. /api/series/tabla
+app.use("/api/users", requireAuth, requirePasswordChanged(), users);
+app.use("/api", requireAuth, requirePasswordChanged(), series); // ej: /api/series/...
 
 /* =========================
    Error handler

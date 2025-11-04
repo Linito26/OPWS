@@ -1,12 +1,11 @@
-#!/usr/bin/env sh
+#!/bin/sh
 set -e
 
-# Defaults seguros
-: "${PORT:=2002}"      # <-- API siempre en 2002 si no se especifica otro
+: "${PORT:=2002}"
 : "${DB_HOST:=db}"
 : "${DB_PORT:=5432}"
 
-echo "Esperando a Postgres en ${DB_HOST}:${DB_PORT} ..."
+echo "Esperando Postgres en ${DB_HOST}:${DB_PORT}..."
 i=0
 until nc -z "${DB_HOST}" "${DB_PORT}"; do
   i=$((i+1))
@@ -18,9 +17,10 @@ until nc -z "${DB_HOST}" "${DB_PORT}"; do
 done
 echo "Postgres disponible."
 
-echo "Aplicando migraciones..."
-npx prisma migrate deploy || true
+echo "DATABASE_URL (parcial): $(echo "${DATABASE_URL}" | sed 's#://.*:@#://****:****@#')"
 
-echo "Iniciando API con node dist/index.js ..."
-echo "OPWS API en http://localhost:${PORT}"
+echo "Aplicando migraciones..."
+./node_modules/.bin/prisma migrate deploy
+
+echo "Iniciando API en puerto ${PORT}..."
 exec node dist/index.js

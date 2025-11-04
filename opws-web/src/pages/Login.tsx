@@ -4,13 +4,13 @@ import { useNavigate, useLocation } from "react-router-dom";
 import bg from "../assets/login-bg.jpg";
 import { http } from "../config/api";
 import { useAuth } from "../auth/AuthContext";
+import { setAuthToken } from "../config/api"; // 👈 IMPORTANTE
 
-type ApiLoginV1 = { token: string; user?: any }; // versión vieja
-type ApiLoginV2 = { access: string; role?: string; mustChangePassword?: boolean; profile?: any }; // versión nueva
+type ApiLoginV1 = { token: string; user?: any };
+type ApiLoginV2 = { access: string; role?: string; mustChangePassword?: boolean; profile?: any };
 type LoginResponse = ApiLoginV1 | ApiLoginV2;
 
 export default function Login() {
-  // Ahora se acepta usuario O correo
   const [identifier, setIdentifier] = useState("admin@opws.test");
   const [password, setPassword] = useState("admin123");
   const [showPass, setShowPass] = useState(false);
@@ -27,33 +27,34 @@ export default function Login() {
     setLoading(true);
     setError(null);
     try {
-      // Backend actualizado acepta { identifier, password }
-      // (Si tu backend aún usa { email, password }, también funcionará si pones el correo en identifier)
+      // Mandamos ambos campos para compatibilidad v1/v2 del backend
+      const payload = { identifier, email: identifier, password };
+
       const data = await http<LoginResponse>("/auth/login", {
         method: "POST",
-        body: JSON.stringify({ identifier, password }),
+        body: JSON.stringify(payload),
       });
 
-      // Soportar ambas respuestas (v1 y v2)
+      // Unificar el token
       const token = ("access" in data ? data.access : (data as ApiLoginV1).token) as string;
 
-      // Intentamos obtener el usuario:
-      // 1) si viene en la respuesta (v1: data.user), úsalo
-      // 2) si no, consultamos /auth/me para traer el perfil completo (id/rol/permisos)
+      // 👈 MUY IMPORTANTE: que api.ts conozca el token
+      setAuthToken(token);
+
+      // Intentar obtener perfil si no vino
       let user: any = ("user" in data && data.user) || null;
       if (!user) {
         try {
           const me = await http<any>("/auth/me");
           user = (me?.user ?? me) || null;
         } catch {
-          // si falla /me, igual continuamos: el AuthContext leerá claims del JWT
           user = { nombre: "Usuario", permisos: [] };
         }
       }
 
+      // Mantener tu estado global (AuthContext)
       login(token, user);
 
-      // Redirección: el PrivateRoute te llevará a /change-password si el JWT indica MCP
       navigate(from, { replace: true });
     } catch (err: any) {
       setError(
@@ -74,7 +75,6 @@ export default function Login() {
       <div className="absolute inset-0 bg-black/45" />
 
       <div className="relative min-h-screen grid place-items-center px-4">
-        {/* ⚠️ Wrapper que escala toda la tarjeta */}
         <div className="transform-gpu origin-center scale-100 md:scale-90 lg:scale-95 xl:scale-[.80] 2xl:scale-[.80] transition-transform">
           <div className="relative w-full max-w-[520px]">
             <div className="relative rounded-xl bg-white/85 backdrop-blur-md shadow-xl p-6 sm:p-7">
@@ -168,7 +168,6 @@ export default function Login() {
             </div>
           </div>
         </div>
-        {/* /wrapper */}
       </div>
     </div>
   );

@@ -21,11 +21,14 @@ services:
   api:
     build:
       context: ./backend
+      dockerfile: Dockerfile
     container_name: opws_api
     environment:
       # DB / API
       DATABASE_URL: "postgresql://opw_user:Linito_26O@db:5432/opw?schema=opws"
       PORT: "2002"
+      DB_HOST: "db"
+      DB_PORT: "5432"
 
       # JWT
       JWT_SECRET: "TEQfGJmAH2ZwP9Y1HjP9QaqfYW7Aq/p49CuafGOhzCxFgDPCZOjg8xPblRNsCqnug9y0+xakCsv48ZDtcPul5w=="
@@ -46,21 +49,22 @@ services:
       db:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:2002/api/health"]
+      test: ["CMD", "curl", "-fsS", "http://localhost:2002/health"]
       interval: 5s
       timeout: 3s
       retries: 20
+      start_period: 15s
     restart: unless-stopped
-    # No exponemos puerto; el proxy del 'web' le pega como http://api:2002
+    # No exponemos el puerto directamente al host; el 'web' hace proxy a http://api:2002
 
   web:
     build:
       context: ./opws-web
       args:
-        VITE_API_URL: "/api"  # el front llama a /api y el Nginx del 'web' debe proxy-pasear a http://api:2002
+        VITE_API_URL: "/api"  # el front llama a /api y Nginx del 'web' proxy-pasea a http://api:2002
     container_name: opws_web
     ports:
-      - "2002:80"   # app en http://localhost:2002
+      - "2002:80"   # app accesible en http://localhost:2002
     depends_on:
       api:
         condition: service_healthy

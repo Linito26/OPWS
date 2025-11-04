@@ -1,6 +1,9 @@
-//src/config/api.ts
-const RAW = (import.meta.env.VITE_API_URL as string | undefined) || "";
-const BASE = RAW.trim().replace(/\/+$/, "") || "http://localhost:2002/api";
+// src/config/api.ts
+const RAW = (import.meta.env.VITE_API_URL as string | undefined) || "/api"; 
+// Por defecto usamos /api detrás de Nginx
+
+// Normaliza quitando slashes al final ("/api///" -> "/api")
+const BASE = RAW.trim().replace(/\/+$/, "");
 
 // token en memoria + localStorage
 let _token: string | null = localStorage.getItem("auth_token") || null;
@@ -13,6 +16,7 @@ export function setAuthToken(t: string | null) {
 export const getAuthToken = () => _token;
 
 export async function http<T>(path: string, init?: RequestInit): Promise<T> {
+  // Asegura 1 solo slash entre BASE y el path
   const url = `${BASE}${path.startsWith("/") ? "" : "/"}${path}`;
 
   const headers: Record<string, string> = {
@@ -24,7 +28,7 @@ export async function http<T>(path: string, init?: RequestInit): Promise<T> {
 
   const res = await fetch(url, { ...init, headers });
 
-  // manejo MCP: 428 -> forzar change-password
+  // Manejo 428 -> forzar cambio de contraseña
   if (res.status === 428) {
     localStorage.setItem("must_change_password", "1");
     if (location.pathname !== "/change-password") {
