@@ -1,4 +1,4 @@
-// src/pages/Sensores.tsx
+// src/pages/Sensores.tsx - VERSIÓN CORREGIDA
 import { useEffect, useMemo, useRef, useState } from "react";
 import { http } from "../config/api";
 import {
@@ -26,36 +26,37 @@ const SENSORS = [
 type SensorKey = typeof SENSORS[number]["key"];
 
 type Estacion = { id: number; codigo: string | null; nombre: string };
-type Point = { t: string; v: number };
-type SeriesMap = Record<SensorKey, Point[]>;
+
+type PointWithStats = { 
+  t: string; 
+  v: number;
+  min?: number;
+  max?: number;
+};
+type SeriesMapWithStats = Record<SensorKey, PointWithStats[]>;
 
 type Preset = "1d" | "7d" | "14d" | "30d" | "custom" | "48h";
 type Group = "raw" | "hour" | "day";
 
-/* ===== parámetros de cálculo para luminosidad ===== */
-const LUX_ON_THRESHOLD = 100; // umbral de "hay luz" (lx)
+const LUX_ON_THRESHOLD = 100;
 
 export default function Sensores() {
   const [estaciones, setEstaciones] = useState<Estacion[]>([]);
   const [estacionId, setEstacionId] = useState<number | null>(null);
 
-  // Filtros de tiempo
   const [preset, setPreset] = useState<Preset>("48h");
   const [fromDate, setFromDate] = useState<string>(() => isoDateDaysAgo(2));
   const [toDate, setToDate] = useState<string>(() => isoDateDaysAgo(0));
   const [group, setGroup] = useState<Group>("hour");
 
-  // selección de sensores (todos activos)
   const [active, setActive] = useState<Record<SensorKey, boolean>>(
     () => Object.fromEntries(SENSORS.map(s => [s.key, true])) as Record<SensorKey, boolean>
   );
 
-  // datos
-  const [series, setSeries] = useState<SeriesMap>({} as SeriesMap);
-  const [lumRaw, setLumRaw] = useState<Point[]>([]); // luminosidad en bruto
+  const [series, setSeries] = useState<SeriesMapWithStats>({} as SeriesMapWithStats);
+  const [lumRaw, setLumRaw] = useState<PointWithStats[]>([]);
   const [loading, setLoading] = useState(false);
 
-  // cargar estaciones
   useEffect(() => {
     (async () => {
       try {
@@ -69,7 +70,6 @@ export default function Sensores() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // rango calculado segun preset
   const { fromISO, toISO } = useMemo(() => {
     if (preset === "custom") {
       const f = new Date(`${fromDate}T00:00:00`);
@@ -83,20 +83,18 @@ export default function Sensores() {
       preset === "1d" ? 1 :
       preset === "7d" ? 7 :
       preset === "14d" ? 14 :
-      preset === "30d" ? 30 : 2; // "48h"
+      preset === "30d" ? 30 : 2;
     f.setDate(now.getDate() - (days - 1));
     f.setHours(0, 0, 0, 0);
     t.setHours(23, 59, 59, 999);
     return { fromISO: f.toISOString(), toISO: t.toISOString() };
   }, [preset, fromDate, toDate]);
 
-  // cargar series cuando cambian filtros/estacion
   useEffect(() => {
     if (!estacionId) return;
     (async () => {
       setLoading(true);
       try {
-        // 1) todas las series según group elegido
         const qs = new URLSearchParams({
           estacionId: String(estacionId),
           keys: SENSORS.map(s => s.key).join(","),
@@ -104,10 +102,9 @@ export default function Sensores() {
           to: toISO,
           group,
         });
-        const data = await http<SeriesMap>(`/series?${qs.toString()}`);
+        const data = await http<SeriesMapWithStats>(`/series?${qs.toString()}`);
         setSeries(fillMissingKeys(data));
 
-        // 2) RAW para luminosidad->minutos
         if (group === "raw") {
           setLumRaw(data.luminosity_lx ?? []);
         } else {
@@ -118,11 +115,10 @@ export default function Sensores() {
             to: toISO,
             group: "raw",
           });
-          const lumOnly = await http<Pick<SeriesMap, "luminosity_lx">>(`/series?${qsRaw.toString()}`);
+          const lumOnly = await http<Pick<SeriesMapWithStats, "luminosity_lx">>(`/series?${qsRaw.toString()}`);
           setLumRaw(lumOnly.luminosity_lx ?? []);
         }
       } catch {
-        // mock para ver el diseño
         const mock = mockRangeSeries(fromISO, toISO, group);
         setSeries(mock);
         setLumRaw(mock.luminosity_lx);
@@ -132,19 +128,28 @@ export default function Sensores() {
     })();
   }, [estacionId, fromISO, toISO, group]);
 
-  /* datos transformados para gráfica (luminosidad => minutos) */
   const transformed = useMemo(() => {
-    const out: Record<string, { data: { ts: number; value: number }[]; unit: string }> = {};
+    const out: Record<string, { data: { ts: number; value: number; min?: number; max?: number }[]; unit: string }> = {};
     for (const s of SENSORS) {
       if (s.key === "luminosity_lx") {
         const t = transformLuminosityToMinutes(lumRaw, group, LUX_ON_THRESHOLD);
         out[s.key] = { data: t, unit: "min" };
       } else if (s.key === "rainfall_mm") {
-        const pts = (series[s.key] ?? []).map(p => ({ ts: +new Date(p.t), value: Math.max(0, p.v) }));
+        const pts = (series[s.key] ?? []).map(p => ({ 
+          ts: +new Date(p.t), 
+          value: Math.max(0, p.v),
+          min: p.min !== undefined ? Math.max(0, p.min) : undefined,
+          max: p.max !== undefined ? Math.max(0, p.max) : undefined,
+        }));
         out[s.key] = { data: pts, unit: "mm" };
       } else {
         out[s.key] = {
-          data: (series[s.key] ?? []).map(p => ({ ts: +new Date(p.t), value: p.v })),
+          data: (series[s.key] ?? []).map(p => ({
+            ts: +new Date(p.t),
+            value: p.v,
+            min: p.min,
+            max: p.max,
+          })),
           unit: s.unit,
         };
       }
@@ -152,22 +157,31 @@ export default function Sensores() {
     return out;
   }, [series, lumRaw, group]);
 
-  /* ===== Exportar XLSX (todas las series activas) ===== */
   async function exportXLSX() {
     const dateLabel = `${fromISO.slice(0,10)}_a_${toISO.slice(0,10)}`;
     try {
-      // carga dinámica para no inflar el bundle
       const XLSX = await import("xlsx");
       const wb = XLSX.utils.book_new();
 
       for (const s of SENSORS) {
         if (!active[s.key]) continue;
         const pack = transformed[s.key];
-        const rows = (pack?.data ?? []).map(r => ({
-          FechaHoraISO: new Date(r.ts).toISOString(),
-          Valor: r.value,
-          Unidad: pack?.unit || s.unit,
-        }));
+        
+        const rows = (pack?.data ?? []).map(r => {
+          const base: any = {
+            "Fecha y Hora": new Date(r.ts).toISOString(),
+            "Promedio": r.value,
+            "Unidad": pack?.unit || s.unit,
+          };
+          
+          if (r.min !== undefined && r.max !== undefined) {
+            base["Mínimo"] = r.min;
+            base["Máximo"] = r.max;
+          }
+          
+          return base;
+        });
+        
         const ws = XLSX.utils.json_to_sheet(rows.length ? rows : [{ Nota: "Sin datos en el rango" }]);
         XLSX.utils.book_append_sheet(wb, ws, s.label.slice(0,31));
       }
@@ -175,15 +189,23 @@ export default function Sensores() {
       XLSX.writeFile(wb, `OPWS_series_${dateLabel}.xlsx`);
     } catch (e) {
       console.warn("xlsx no disponible, exportando CSV de respaldo.", e);
-      // fallback: un CSV por sensor (combinado en uno con separador entre hojas)
       let csv = `OPWS Export ${dateLabel}\n`;
       for (const s of SENSORS) {
         if (!active[s.key]) continue;
         const pack = transformed[s.key];
-        csv += `\n=== ${s.label} ===\nFechaHoraISO,Valor,Unidad\n`;
-        const rows = (pack?.data ?? []).map(r =>
-          `${new Date(r.ts).toISOString()},${r.value},${pack?.unit || s.unit}`
-        );
+        const hasStats = pack?.data[0]?.min !== undefined;
+        
+        csv += `\n=== ${s.label} ===\n`;
+        csv += hasStats 
+          ? "Fecha y Hora,Promedio,Mínimo,Máximo,Unidad\n"
+          : "Fecha y Hora,Valor,Unidad\n";
+          
+        const rows = (pack?.data ?? []).map(r => {
+          const base = `${new Date(r.ts).toISOString()},${r.value}`;
+          return hasStats 
+            ? `${base},${r.min},${r.max},${pack?.unit || s.unit}`
+            : `${base},${pack?.unit || s.unit}`;
+        });
         csv += rows.length ? rows.join("\n") : "Sin datos\n";
       }
       const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
@@ -195,44 +217,45 @@ export default function Sensores() {
     }
   }
 
-  /* ===== Exportar XLSX (sensor individual) ===== */
   async function exportSingleSensor(sensorKey: SensorKey) {
-    // Encontrar la configuración del sensor
     const sensorConfig = SENSORS.find(s => s.key === sensorKey);
     if (!sensorConfig) return;
 
-    // Obtener los datos transformados del sensor
     const pack = transformed[sensorKey];
     if (!pack || !pack.data.length) {
       alert("No hay datos para exportar");
       return;
     }
 
-    // Obtener el nombre de la estación
     const estacionNombre = estaciones.find(e => e.id === estacionId)?.nombre || "Sin estación";
-
-    // Formato de fechas para el nombre del archivo
     const fromLabel = fromISO.slice(0, 10).replace(/-/g, "");
     const toLabel = toISO.slice(0, 10).replace(/-/g, "");
 
     try {
-      // Carga dinámica para no inflar el bundle
       const XLSX = await import("xlsx");
 
-      // Crear filas con la estructura: Fecha y Hora, Valor, Unidad, Estación
-      const rows = pack.data.map(r => ({
-        "Fecha y Hora": new Date(r.ts).toISOString(),
-        "Valor": r.value,
-        "Unidad": pack.unit,
-        "Estación": estacionNombre,
-      }));
+      const hasStats = pack.data[0]?.min !== undefined;
+      
+      const rows = pack.data.map(r => {
+        const base: any = {
+          "Fecha y Hora": new Date(r.ts).toISOString(),
+          "Promedio": r.value,
+          "Unidad": pack.unit,
+          "Estación": estacionNombre,
+        };
+        
+        if (hasStats) {
+          base["Mínimo"] = r.min;
+          base["Máximo"] = r.max;
+        }
+        
+        return base;
+      });
 
-      // Crear workbook y worksheet
       const wb = XLSX.utils.book_new();
       const ws = XLSX.utils.json_to_sheet(rows);
       XLSX.utils.book_append_sheet(wb, ws, sensorConfig.label.slice(0, 31));
 
-      // Nombre del archivo: OPWS_[sensorLabel]_[fromDate]_[toDate].xlsx
       const fileName = `OPWS_${sensorConfig.label.replace(/\s+/g, "_")}_${fromLabel}_${toLabel}.xlsx`;
       XLSX.writeFile(wb, fileName);
     } catch (e) {
@@ -243,7 +266,6 @@ export default function Sensores() {
 
   return (
     <div className="min-h-[calc(100vh-64px)]">
-      {/* ===== Hero ===== */}
       <section className="relative overflow-hidden">
         <div className="absolute inset-0 bg-linear-to-r from-emerald-600 via-emerald-500 to-emerald-600" />
         <div className="absolute inset-0 opacity-20" style={{ backgroundImage: "radial-gradient(transparent 60%, #000 61%)" }} />
@@ -263,13 +285,10 @@ export default function Sensores() {
         </div>
       </section>
 
-      {/* ===== Contenido ===== */}
       <main className="max-w-7xl mx-auto px-5 sm:px-8 py-8 space-y-6">
-        {/* Tarjeta: filtros, chips y botón de exportación */}
         <div className="rounded-2xl border border-neutral-200/80 bg-white/85 backdrop-blur-sm shadow-sm">
           <div className="p-5 sm:p-6">
             <div className="grid gap-4 md:gap-3 md:grid-cols-12 md:items-center">
-              {/* IZQUIERDA: título + chips */}
               <div className="md:col-span-7 lg:col-span-8 flex items-start md:items-center gap-3 flex-wrap">
                 <h3 className="text-base sm:text-lg font-semibold text-neutral-900 shrink-0">
                   Todos los sensores
@@ -298,7 +317,6 @@ export default function Sensores() {
                 </div>
               </div>
 
-              {/* DERECHA: estación + rango + agrupación + XLSX */}
               <div className="md:col-span-5 lg:col-span-4 flex flex-wrap gap-2 sm:gap-3 items-center justify-start md:justify-end">
                 <select
                   className="rounded-lg border border-neutral-300 px-2.5 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500/30"
@@ -354,7 +372,6 @@ export default function Sensores() {
           </div>
         </div>
 
-        {/* Gráficas */}
         {loading ? (
           <div className="rounded-2xl border border-neutral-200/80 bg-white/80 backdrop-blur-sm shadow-sm p-6">
             <div className="h-[220px] rounded bg-neutral-200/60 animate-pulse" />
@@ -369,17 +386,18 @@ export default function Sensores() {
 
               return (
                 <ChartCard
-                key={s.key}
-                title={`${s.label} (${finalUnit})`}
-                unit={finalUnit}
-                color={s.color}
-                decimals={s.decimals}
-                data={data}
-                chart={s.chart}
-                fileBase={`opws_${s.key}`}
-                onExportSingle={() => exportSingleSensor(s.key)}
-                estacionNombre={estaciones.find(e => e.id === estacionId)?.nombre || "OPWS"}
-              />
+                  key={s.key}
+                  title={`${s.label} (${finalUnit})`}
+                  unit={finalUnit}
+                  color={s.color}
+                  decimals={s.decimals}
+                  data={data}
+                  chart={s.chart}
+                  fileBase={`opws_${s.key}`}
+                  onExportSingle={() => exportSingleSensor(s.key)}
+                  estacionNombre={estaciones.find(e => e.id === estacionId)?.nombre || "OPWS"}
+                  sensorLabel={s.label}
+                />
               );
             })}
             {Object.values(active).every(v => !v) && (
@@ -424,33 +442,61 @@ function RangePills({
   );
 }
 
-// Tooltip personalizado más profesional
-function CustomTooltip({ active, payload, label }: any) {
+// ✨ TOOLTIP MEJORADO - Formato profesional
+function CustomTooltip({ active, payload, label, sensorLabel }: any) {
   if (!active || !payload || !payload.length) return null;
 
   const date = new Date(label);
-  const dateStr = date.toLocaleDateString("es-GT", { 
-    day: "2-digit", 
-    month: "short", 
-    year: "numeric" 
-  });
+  
+  // Formato: "Viér 2025-10-25"
+  const dayName = date.toLocaleDateString("es-GT", { weekday: "short" });
+  const dateStr = date.toISOString().slice(0, 10);
+  
+  // Formato: "10:25"
   const timeStr = date.toLocaleTimeString("es-GT", { 
     hour: "2-digit", 
-    minute: "2-digit" 
+    minute: "2-digit",
+    hour12: false
   });
 
+  const value = payload[0].value;
+  const unit = payload[0].unit || "";
+
   return (
-    <div className="bg-white/95 backdrop-blur-sm border border-neutral-200 rounded-lg shadow-lg px-4 py-3">
-      <p className="text-xs font-medium text-neutral-500 mb-1">
-        {dateStr} {timeStr}
+    <div className="bg-white border border-neutral-300 rounded-lg shadow-xl px-3 py-2 min-w-[180px]">
+      <p className="text-xs text-neutral-500 mb-1">
+        {dayName} {dateStr}
       </p>
       <p className="text-sm font-semibold text-neutral-900">
-        {payload[0].name}: {payload[0].value}
+        {sensorLabel}: {value}{unit}
+      </p>
+      <p className="text-xs text-neutral-400 mt-0.5">
+        Hora: {timeStr}
       </p>
     </div>
   );
 }
-
+function generateDailyTicks(data: { ts: number; value: number }[]) {
+  if (!data.length) return [];
+  
+  const minTs = Math.min(...data.map(d => d.ts));
+  const maxTs = Math.max(...data.map(d => d.ts));
+  
+  const ticks: number[] = [];
+  const startDay = new Date(minTs);
+  startDay.setHours(0, 0, 0, 0);
+  
+  const endDay = new Date(maxTs);
+  endDay.setHours(23, 59, 59, 999);
+  
+  let current = new Date(startDay);
+  while (current <= endDay) {
+    ticks.push(current.getTime());
+    current.setDate(current.getDate() + 1);
+  }
+  
+  return ticks;
+}
 function ChartCard({
   title,
   unit,
@@ -461,68 +507,83 @@ function ChartCard({
   fileBase = "opws_chart",
   onExportSingle,
   estacionNombre = "OPWS",
+  sensorLabel,
 }: {
   title: string;
   unit: string;
   color: string;
   decimals?: number;
-  data: { ts: number; value: number }[];
+  data: { ts: number; value: number; min?: number; max?: number }[];
   chart?: "line" | "bar";
   fileBase?: string;
   onExportSingle?: () => void;
   estacionNombre?: string;
+  sensorLabel?: string;
 }) {
   const id = useMemo(() => `g${Math.random().toString(36).slice(2)}`, []);
-  const holderRef = useRef<HTMLDivElement>(null);
+  const cardRef = useRef<HTMLDivElement>(null);
 
   const fmtTick = (ms: number) => {
     const d = new Date(ms);
     const dd = String(d.getDate()).padStart(2, "0");
     const mm = String(d.getMonth() + 1).padStart(2, "0");
-    const hh = String(d.getHours()).padStart(2, "0");
-    const min = String(d.getMinutes()).padStart(2, "0");
-    return `${dd}/${mm} ${hh}:${min}`;
+    
+    // ✨ Solo mostrar día/mes (sin hora)
+    return `${dd}/${mm}`;
   };
 
   const fmtVal = (n: number) => (decimals === 0 ? Math.round(n) : Number(n).toFixed(decimals));
   const barSize = Math.max(4, Math.min(20, Math.floor(800 / Math.max(1, data.length))));
 
+  // ✨ PNG MEJORADO: Usa dom-to-image en lugar de html2canvas
+
   const downloadPNG = async () => {
-    const svg = holderRef.current?.querySelector("svg");
-    if (!svg) return;
-
-    const serializer = new XMLSerializer();
-    const svgStr = serializer.serializeToString(svg);
-    const svgBlob = new Blob([svgStr], { type: "image/svg+xml;charset=utf-8" });
-    const url = URL.createObjectURL(svgBlob);
-
-    const img = new Image();
-    img.onload = () => {
-      const rect = svg.getBoundingClientRect();
-      const scale = 3;
-      const canvas = document.createElement("canvas");
-      canvas.width = Math.max(1, Math.round(rect.width * scale));
-      canvas.height = Math.max(1, Math.round(rect.height * scale));
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return;
-      ctx.fillStyle = "#ffffff";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-      canvas.toBlob((blob) => {
-        if (!blob) return;
-        const a = document.createElement("a");
-        a.href = URL.createObjectURL(blob);
-        a.download = `${fileBase}.png`;
-        a.click();
-        URL.revokeObjectURL(a.href);
-        URL.revokeObjectURL(url);
-      }, "image/png", 0.95);
-    };
-    img.onerror = () => URL.revokeObjectURL(url);
-    img.src = url;
+    if (!cardRef.current) return;
+  
+    try {
+      // Importar todo el módulo
+      const domtoimage = await import('dom-to-image');
+      
+      // Acceder a toPng correctamente
+      const toPng = domtoimage.default?.toPng || (domtoimage as any).toPng;
+      
+      if (!toPng) {
+        throw new Error('toPng no disponible');
+      }
+  
+      const dataUrl = await toPng(cardRef.current, {
+        quality: 1.0,
+        bgcolor: '#ffffff',
+        width: cardRef.current.offsetWidth * 2,
+        height: cardRef.current.offsetHeight * 2,
+      });
+  
+      const link = document.createElement('a');
+      link.download = `${fileBase}_completo.png`;
+      link.href = dataUrl;
+      link.click();
+    } catch (error) {
+      console.error("Error al exportar PNG:", error);
+      
+      // Fallback simple
+      try {
+        const domtoimage = await import('dom-to-image');
+        const toPng = domtoimage.default?.toPng || (domtoimage as any).toPng;
+        
+        const dataUrl = await toPng(cardRef.current, {
+          bgcolor: '#ffffff',
+        });
+        
+        const link = document.createElement('a');
+        link.download = `${fileBase}_completo.png`;
+        link.href = dataUrl;
+        link.click();
+      } catch {
+        alert("Error al generar la imagen. Intenta de nuevo.");
+      }
+    }
   };
 
-  // Calcular estadísticas
   const stats = useMemo(() => {
     if (!data.length) return null;
     const values = data.map(d => d.value);
@@ -533,8 +594,7 @@ function ChartCard({
   }, [data]);
 
   return (
-    <div className="rounded-2xl border border-neutral-200/60 bg-white shadow-sm overflow-hidden">
-      {/* Header */}
+    <div ref={cardRef} className="rounded-2xl border border-neutral-200/60 bg-white shadow-sm overflow-hidden">
       <div className="bg-linear-to-r from-neutral-50 to-white px-6 py-4 border-b border-neutral-100">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -586,7 +646,7 @@ function ChartCard({
             <button
               onClick={downloadPNG}
               className="px-3 py-1.5 text-xs font-medium rounded-lg bg-white hover:bg-neutral-50 transition-colors border border-neutral-200"
-              title="Descargar PNG"
+              title="Descargar PNG completo"
             >
               📷 PNG
             </button>
@@ -594,9 +654,7 @@ function ChartCard({
         </div>
       </div>
 
-      {/* Gráfica */}
-      <div ref={holderRef} className="p-6 relative">
-        {/* Marca de agua */}
+      <div className="p-6 relative">
         <div className="absolute top-8 right-8 text-neutral-200 font-bold text-sm tracking-wider select-none pointer-events-none z-10">
           {estacionNombre.toUpperCase()}
         </div>
@@ -633,15 +691,18 @@ function ChartCard({
                     vertical={false}
                     opacity={0.5}
                   />
-                  <XAxis
-                    dataKey="ts"
-                    type="number"
-                    domain={["dataMin", "dataMax"]}
-                    tickFormatter={fmtTick}
-                    stroke="#9ca3af"
-                    tick={{ fontSize: 11, fill: "#6b7280" }}
-                    tickLine={{ stroke: "#d1d5db" }}
-                  />
+                    <XAxis
+                      dataKey="ts"
+                      type="number"
+                      domain={["dataMin", "dataMax"]}
+                      tickFormatter={fmtTick}
+                      stroke="#9ca3af"
+                      tick={{ fontSize: 11, fill: "#6b7280" }}
+                      tickLine={{ stroke: "#d1d5db" }}
+                      interval="preserveStartEnd"  // ✨ NUEVO: Asegura mostrar inicio y fin
+                      minTickGap={50}
+                      ticks={generateDailyTicks(data)}               // ✨ NUEVO: Espaciado mínimo entre ticks
+                    />
                   <YAxis
                     dataKey="value"
                     width={60}
@@ -652,7 +713,7 @@ function ChartCard({
                     allowDecimals
                   />
                   <Tooltip 
-                    content={<CustomTooltip />}
+                    content={(props) => <CustomTooltip {...props} sensorLabel={sensorLabel} />}
                     cursor={{ fill: "rgba(0,0,0,0.05)" }}
                   />
                   <Bar
@@ -664,6 +725,7 @@ function ChartCard({
                     barSize={barSize}
                     isAnimationActive={false}
                     name={`${title}`}
+                    unit={unit}
                   />
                 </BarChart>
               ) : (
@@ -706,7 +768,7 @@ function ChartCard({
                     allowDecimals
                   />
                   <Tooltip 
-                    content={<CustomTooltip />}
+                    content={(props) => <CustomTooltip {...props} sensorLabel={sensorLabel} />}
                     cursor={{ stroke: color, strokeWidth: 1, strokeDasharray: "5 5" }}
                   />
                   <Area 
@@ -730,6 +792,7 @@ function ChartCard({
                     }}
                     isAnimationActive={false}
                     name={`${title}`}
+                    unit={unit}
                     filter={`url(#${id}-shadow)`}
                   />
                 </LineChart>
@@ -739,7 +802,6 @@ function ChartCard({
         )}
       </div>
 
-      {/* Footer con info adicional */}
       {data.length > 0 && (
         <div className="px-6 py-3 bg-neutral-50/50 border-t border-neutral-100">
           <div className="flex items-center justify-between text-xs text-neutral-500">
@@ -755,6 +817,7 @@ function ChartCard({
     </div>
   );
 }
+
 /* ====== utilidades ====== */
 
 function isoDateDaysAgo(days: number) {
@@ -770,7 +833,7 @@ function median(arr: number[]) {
   return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
 }
 
-function estimateIntervalMinutes(points: Point[]) {
+function estimateIntervalMinutes(points: PointWithStats[]) {
   if (points.length < 2) return 60;
   const diffs: number[] = [];
   for (let i = 1; i < points.length; i++) {
@@ -792,20 +855,18 @@ function startOfDay(ts: number) {
   return +d;
 }
 
-function fillMissingKeys(data: Partial<SeriesMap>): SeriesMap {
-  const result = {} as SeriesMap;
+function fillMissingKeys(data: Partial<SeriesMapWithStats>): SeriesMapWithStats {
+  const result = {} as SeriesMapWithStats;
   (SENSORS.map(s => s.key) as SensorKey[]).forEach(k => {
-    result[k] = (data[k] ?? []) as Point[];
+    result[k] = (data[k] ?? []) as PointWithStats[];
   });
   return result;
 }
 
-/** Calcula minutos de luz por periodo a partir de luminosidad RAW */
-function transformLuminosityToMinutes(pts: Point[], group: Group, threshold: number) {
+function transformLuminosityToMinutes(pts: PointWithStats[], group: Group, threshold: number) {
   if (!pts.length) return [];
   const intervalMin = estimateIntervalMinutes(pts);
 
-  // asigna minutos "on" por muestra
   const samples = pts.map((p) => ({
     ts: +new Date(p.t),
     min: p.v >= threshold ? intervalMin : 0,
@@ -815,7 +876,6 @@ function transformLuminosityToMinutes(pts: Point[], group: Group, threshold: num
     return samples.map(s => ({ ts: s.ts, value: s.min }));
   }
 
-  // agrega por hora o por día
   const agg = new Map<number, number>();
   for (const s of samples) {
     const bucket = group === "hour" ? startOfHour(s.ts) : startOfDay(s.ts);
@@ -830,15 +890,13 @@ function transformLuminosityToMinutes(pts: Point[], group: Group, threshold: num
   return out;
 }
 
-/* ====== mock de datos si aún no tienes endpoint ====== */
-
-function mockRangeSeries(fromISO: string, toISO: string, group: Group): SeriesMap {
+function mockRangeSeries(fromISO: string, toISO: string, group: Group): SeriesMapWithStats {
   const from = new Date(fromISO).getTime();
   const to = new Date(toISO).getTime();
   const span = Math.max(1, to - from);
 
   const N =
-    group === "raw"  ? Math.min(800, Math.round(span / (1000 * 60 * 10))) : // cada 10 min máx
+    group === "raw"  ? Math.min(800, Math.round(span / (1000 * 60 * 10))) :
     group === "hour" ? Math.min(400, Math.round(span / (1000 * 60 * 60)))  :
                        Math.min(200, Math.round(span / (1000 * 60 * 60 * 24)));
 
@@ -847,10 +905,20 @@ function mockRangeSeries(fromISO: string, toISO: string, group: Group): SeriesMa
   );
   const jitter = (c: number) => (Math.random() - 0.5) * c;
 
-  const mk = (base: number, amp: number, noise: number, floor = -Infinity, ceil = Infinity) =>
+  const mk = (base: number, amp: number, noise: number, floor = -Infinity, ceil = Infinity): PointWithStats[] =>
     times.map((t, i) => {
       const s = Math.sin((i / Math.max(2, N - 1)) * Math.PI * 2);
       const v = Math.min(ceil, Math.max(floor, base + amp * s + jitter(noise)));
+      
+      if (group !== "raw") {
+        const variation = noise * 0.5;
+        return { 
+          t, 
+          v,
+          min: Math.max(floor, v - variation),
+          max: Math.min(ceil, v + variation),
+        };
+      }
       return { t, v };
     });
 
@@ -860,10 +928,32 @@ function mockRangeSeries(fromISO: string, toISO: string, group: Group): SeriesMa
     soil_moisture_pct: mk(55, 5, 2, 25, 95),
     luminosity_lx:     times.map((t) => {
                           const hour = new Date(t).getHours();
-                          const daylight = Math.max(0, Math.sin((hour - 6) / 12 * Math.PI)); // pico medio día
+                          const daylight = Math.max(0, Math.sin((hour - 6) / 12 * Math.PI));
                           const base = 20000 * daylight + jitter(800);
-                          return { t, v: Math.max(0, Math.round(base)) };
+                          const v = Math.max(0, Math.round(base));
+                          
+                          if (group !== "raw") {
+                            return { 
+                              t, 
+                              v,
+                              min: Math.max(0, Math.round(v * 0.85)),
+                              max: Math.round(v * 1.15),
+                            };
+                          }
+                          return { t, v };
                         }),
-    rainfall_mm:       times.map((t) => ({ t, v: Math.random() < 0.12 ? Number((Math.random() * 3).toFixed(2)) : 0 })),
-  } as SeriesMap;
+    rainfall_mm:       times.map((t) => {
+                          const v = Math.random() < 0.12 ? Number((Math.random() * 3).toFixed(2)) : 0;
+                          
+                          if (group !== "raw" && v > 0) {
+                            return {
+                              t,
+                              v,
+                              min: v * 0.7,
+                              max: v * 1.3,
+                            };
+                          }
+                          return { t, v };
+                        }),
+  } as SeriesMapWithStats;
 }
