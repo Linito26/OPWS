@@ -1,5 +1,22 @@
-// opws-web/src/components/MapStations.tsx
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
+import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
+import L from "leaflet";
+import "leaflet/dist/leaflet.css";
+
+// Fix de íconos
+import icon from "leaflet/dist/images/marker-icon.png";
+import iconShadow from "leaflet/dist/images/marker-shadow.png";
+import iconRetina from "leaflet/dist/images/marker-icon-2x.png";
+
+const DefaultIcon = L.icon({
+  iconUrl: icon,
+  iconRetinaUrl: iconRetina,
+  shadowUrl: iconShadow,
+  iconSize: [25, 41],
+  iconAnchor: [12, 41],
+});
+
+L.Marker.prototype.options.icon = DefaultIcon;
 
 export type MapStation = {
   id: number;
@@ -16,13 +33,6 @@ type Props = {
   showLayerToggle?: boolean;
 };
 
-type RLBundle = {
-  MapContainer: any;
-  TileLayer: any;
-  Marker: any;
-  Popup: any;
-};
-
 export default function MapStations({
   center,
   stations,
@@ -31,30 +41,6 @@ export default function MapStations({
   showLayerToggle = true,
 }: Props) {
   const [layer, setLayer] = useState<"satellite" | "streets">(base);
-  const [rl, setRL] = useState<RLBundle | null>(null);
-
-  // Carga dinámica sólo en cliente + fix de íconos
-  useEffect(() => {
-    let mounted = true;
-    (async () => {
-      const [{ MapContainer, TileLayer, Marker, Popup }, L] = await Promise.all([
-        import("react-leaflet"),
-        import("leaflet"),
-      ]);
-
-      // Fix íconos por defecto en Vite
-      const iconUrl = new URL("leaflet/dist/images/marker-icon.png", import.meta.url).toString();
-      const iconRetinaUrl = new URL("leaflet/dist/images/marker-icon-2x.png", import.meta.url).toString();
-      const shadowUrl = new URL("leaflet/dist/images/marker-shadow.png", import.meta.url).toString();
-      (L as any).Icon.Default.mergeOptions({ iconUrl, iconRetinaUrl, shadowUrl });
-
-      if (mounted) setRL({ MapContainer, TileLayer, Marker, Popup });
-    })();
-
-    return () => {
-      mounted = false;
-    };
-  }, []);
 
   const markers = useMemo(
     () => stations.filter((s) => isFiniteNumber(s.lat) && isFiniteNumber(s.lng)) as Required<MapStation>[],
@@ -66,7 +52,6 @@ export default function MapStations({
       return [center.lat, center.lng];
     }
     if (markers.length) return [markers[0].lat!, markers[0].lng!];
-    // Fallback Guatemala
     return [14.64072, -90.51327];
   }, [center, markers]);
 
@@ -81,20 +66,6 @@ export default function MapStations({
           url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
           attribution: "© OpenStreetMap contributors",
         };
-
-  // Si aún no cargó react-leaflet
-  if (!rl) {
-    return (
-      <div
-        className="rounded-xl border border-neutral-200 bg-white/60 grid place-items-center text-sm text-neutral-500"
-        style={{ height }}
-      >
-        Cargando mapa…
-      </div>
-    );
-  }
-
-  const { MapContainer, TileLayer, Marker, Popup } = rl;
 
   return (
     <div className="relative w-full overflow-hidden rounded-lg" style={{ height }}>
@@ -126,7 +97,6 @@ export default function MapStations({
       <MapContainer
         center={initialCenter}
         zoom={14}
-        scrollWheelZoom
         style={{ width: "100%", height: "100%" }}
       >
         <TileLayer url={tile.url} attribution={tile.attribution} />
