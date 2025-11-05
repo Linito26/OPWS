@@ -4,7 +4,7 @@ import cors from "cors";
 import helmet from "helmet";
 
 import { health } from "./routes/health";
-import { estaciones } from "./routes/estaciones";
+import { estaciones, estacionesAdmin } from "./routes/estaciones";
 import { series } from "./routes/series";
 import { ttn } from "./routes/ttn";
 
@@ -79,6 +79,11 @@ app.use("/api/ttn", ttn); // webhook de The Things Network
 app.use("/api/estaciones", requireAuth, requirePasswordChanged(), estaciones);
 app.use("/api/users", requireAuth, requirePasswordChanged(), users);
 app.use("/api", requireAuth, requirePasswordChanged(), series); // ej: /api/series/...
+
+/* =========================
+   Rutas ADMIN (requieren autenticación + rol)
+   ========================= */
+app.use("/api/admin/estaciones", requireAuth, requirePasswordChanged(), estacionesAdmin);
 
 /* =========================
    Error handler
