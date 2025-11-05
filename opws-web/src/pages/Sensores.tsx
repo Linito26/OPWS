@@ -535,39 +535,36 @@ function ChartCard({
   const fmtVal = (n: number) => (decimals === 0 ? Math.round(n) : Number(n).toFixed(decimals));
   const barSize = Math.max(4, Math.min(20, Math.floor(800 / Math.max(1, data.length))));
 
-  // ✨ PNG MEJORADO: Usa dom-to-image en lugar de html2canvas
-
+  // ✨ PNG MEJORADO: Captura el card completo con alta calidad
   const downloadPNG = async () => {
     if (!cardRef.current) return;
 
     try {
-      // Importar todo el módulo
+      // Importar dom-to-image
       const domtoimage = await import('dom-to-image');
-
-      // Acceder a toPng correctamente
       const toPng = domtoimage.default?.toPng || (domtoimage as any).toPng;
 
       if (!toPng) {
         throw new Error('toPng no disponible');
       }
 
-      // Obtener dimensiones reales del contenedor
+      // Obtener dimensiones reales del card
       const rect = cardRef.current.getBoundingClientRect();
-      const scale = 2; // Factor de escala para mejor calidad
+      const scale = 2; // Factor de escala para alta calidad (2x)
 
+      // Capturar con alta resolución
       const dataUrl = await toPng(cardRef.current, {
         quality: 1.0,
         bgcolor: '#ffffff',
-        width: rect.width,
-        height: rect.height,
+        width: rect.width * scale,
+        height: rect.height * scale,
         style: {
           transform: `scale(${scale})`,
           transformOrigin: 'top left',
-          width: `${rect.width}px`,
-          height: `${rect.height}px`,
         },
       });
 
+      // Descargar la imagen
       const link = document.createElement('a');
       link.download = `${fileBase}_completo.png`;
       link.href = dataUrl;
@@ -575,7 +572,7 @@ function ChartCard({
     } catch (error) {
       console.error("Error al exportar PNG:", error);
 
-      // Fallback simple sin escala
+      // Fallback: Intentar sin escalado
       try {
         const domtoimage = await import('dom-to-image');
         const toPng = domtoimage.default?.toPng || (domtoimage as any).toPng;
@@ -589,8 +586,9 @@ function ChartCard({
         link.download = `${fileBase}_completo.png`;
         link.href = dataUrl;
         link.click();
-      } catch {
-        alert("Error al generar la imagen. Intenta de nuevo.");
+      } catch (fallbackError) {
+        console.error("Error en fallback:", fallbackError);
+        alert("Error al generar la imagen. Por favor, intenta de nuevo o usa otro navegador.");
       }
     }
   };
