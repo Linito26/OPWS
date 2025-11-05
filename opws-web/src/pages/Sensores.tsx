@@ -196,6 +196,68 @@ export default function Sensores() {
     }
   }
 
+  /* ===== Exportar todas las gráficas como PNG ===== */
+  const chartRefs = useRef<Map<string, HTMLDivElement | null>>(new Map());
+
+  async function exportAllPNG() {
+    const dateStr = new Date().toISOString().slice(0, 10);
+
+    for (const s of SENSORS) {
+      if (!active[s.key]) continue;
+
+      const holderDiv = chartRefs.current.get(s.key);
+      if (!holderDiv) continue;
+
+      const svg = holderDiv.querySelector("svg");
+      if (!svg) continue;
+
+      await new Promise<void>((resolve) => {
+        const serializer = new XMLSerializer();
+        const svgStr = serializer.serializeToString(svg);
+        const svgBlob = new Blob([svgStr], { type: "image/svg+xml;charset=utf-8" });
+        const url = URL.createObjectURL(svgBlob);
+
+        const img = new Image();
+        img.onload = () => {
+          const rect = svg.getBoundingClientRect();
+          const scale = 2; // @2x
+          const canvas = document.createElement("canvas");
+          canvas.width = Math.max(1, Math.round(rect.width * scale));
+          canvas.height = Math.max(1, Math.round(rect.height * scale));
+          const ctx = canvas.getContext("2d");
+          if (!ctx) {
+            URL.revokeObjectURL(url);
+            resolve();
+            return;
+          }
+          // fondo blanco
+          ctx.fillStyle = "#ffffff";
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          canvas.toBlob((blob) => {
+            if (blob) {
+              const a = document.createElement("a");
+              a.href = URL.createObjectURL(blob);
+              a.download = `OPWS_${s.key}_${dateStr}.png`;
+              a.click();
+              URL.revokeObjectURL(a.href);
+            }
+            URL.revokeObjectURL(url);
+            resolve();
+          }, "image/png");
+        };
+        img.onerror = () => {
+          URL.revokeObjectURL(url);
+          resolve();
+        };
+        img.src = url;
+      });
+
+      // Pequeño delay entre descargas para evitar problemas en algunos navegadores
+      await new Promise(r => setTimeout(r, 300));
+    }
+  }
+
   return (
     <div className="min-h-[calc(100vh-64px)]">
       {/* ===== Hero ===== */}
@@ -297,13 +359,7 @@ export default function Sensores() {
                   <option value="day">Diario</option>
                 </select>
 
-                <button
-                  onClick={exportXLSX}
-                  className="ml-1 px-3 py-2 text-sm rounded-md border bg-white hover:bg-neutral-50"
-                  title="Exportar todas las series activas en XLSX"
-                >
-                  Exportar XLSX
-                </button>
+                <ExportDropdown onExportExcel={exportXLSX} onExportPNG={exportAllPNG} />
               </div>
             </div>
           </div>
@@ -332,6 +388,8 @@ export default function Sensores() {
                   data={data}
                   chart={s.chart}
                   fileBase={`opws_${s.key}`}
+                  sensorKey={s.key}
+                  onRefSet={(ref) => chartRefs.current.set(s.key, ref)}
                 />
               );
             })}
@@ -348,6 +406,71 @@ export default function Sensores() {
 }
 
 /* ====== Subcomponentes ====== */
+
+function ExportDropdown({
+  onExportExcel,
+  onExportPNG,
+}: {
+  onExportExcel: () => void;
+  onExportPNG: () => void;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className="ml-1 px-3 py-2 text-sm rounded-md border bg-white hover:bg-neutral-50 flex items-center gap-2"
+        title="Exportar datos"
+      >
+        Exportar
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          className={`transition-transform ${isOpen ? "rotate-180" : ""}`}
+        >
+          <path d="M6 9l6 6 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+        </svg>
+      </button>
+
+      {isOpen && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => setIsOpen(false)} />
+          <div className="absolute right-0 mt-1 w-48 rounded-lg border border-neutral-200 bg-white shadow-lg z-20 overflow-hidden">
+            <button
+              onClick={() => {
+                onExportPNG();
+                setIsOpen(false);
+              }}
+              className="w-full px-4 py-2.5 text-sm text-left hover:bg-neutral-50 flex items-center gap-3"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                <rect x="3" y="3" width="18" height="18" rx="2" stroke="currentColor" strokeWidth="2" />
+                <path d="M8 12h8M12 8v8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+              </svg>
+              Exportar PNG
+            </button>
+            <button
+              onClick={() => {
+                onExportExcel();
+                setIsOpen(false);
+              }}
+              className="w-full px-4 py-2.5 text-sm text-left hover:bg-neutral-50 flex items-center gap-3 border-t border-neutral-100"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" stroke="currentColor" strokeWidth="2" />
+                <path d="M14 2v6h6M8 13h8M8 17h8M8 9h2" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+              </svg>
+              Exportar Excel
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
 
 function RangePills({
   preset,
@@ -385,6 +508,8 @@ function ChartCard({
   data,
   chart = "line",
   fileBase = "opws_chart",
+  sensorKey,
+  onRefSet,
 }: {
   title: string;
   unit: string;
@@ -393,6 +518,8 @@ function ChartCard({
   data: { ts: number; value: number }[];
   chart?: "line" | "bar";
   fileBase?: string;
+  sensorKey?: string;
+  onRefSet?: (ref: HTMLDivElement | null) => void;
 }) {
   const id = useMemo(() => `g${Math.random().toString(36).slice(2)}`, []);
   const fmtTick = (ms: number) => {
@@ -406,6 +533,13 @@ function ChartCard({
   const barSize = Math.max(3, Math.min(18, Math.floor(600 / Math.max(1, data.length))));
   const holderRef = useRef<HTMLDivElement>(null);
 
+  // Registrar el ref cuando se monta
+  useEffect(() => {
+    if (onRefSet && holderRef.current) {
+      onRefSet(holderRef.current);
+    }
+  }, [onRefSet]);
+
   const downloadPNG = async () => {
     const svg = holderRef.current?.querySelector("svg");
     if (!svg) return;
@@ -418,7 +552,7 @@ function ChartCard({
     const img = new Image();
     img.onload = () => {
       const rect = svg.getBoundingClientRect();
-      const scale = 2; // @2x
+      const scale = 2; // @2x para alta resolución
       const canvas = document.createElement("canvas");
       canvas.width = Math.max(1, Math.round(rect.width * scale));
       canvas.height = Math.max(1, Math.round(rect.height * scale));
@@ -432,7 +566,9 @@ function ChartCard({
         if (!blob) return;
         const a = document.createElement("a");
         a.href = URL.createObjectURL(blob);
-        a.download = `${fileBase}.png`;
+        // Nombre mejorado: OPWS_[sensorKey]_[fecha].png
+        const dateStr = new Date().toISOString().slice(0, 10);
+        a.download = `OPWS_${sensorKey || fileBase}_${dateStr}.png`;
         a.click();
         URL.revokeObjectURL(a.href);
         URL.revokeObjectURL(url);
