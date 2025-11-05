@@ -14,6 +14,7 @@
 		"seed:build": "tsc -p tsconfig.seed.json",
 		"seed:run": "node dist-seed/prisma/seed.js",
 		"prisma:seed": "pnpm seed:build && pnpm seed:run",
+		"seed:sensors": "tsx scripts/seed-sensor-data.ts",
 		"postinstall": "prisma generate"
 	},
 	"prisma": {
