@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
+import { useMemo, useState, useEffect } from "react";
+import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
@@ -32,6 +32,24 @@ type Props = {
   base?: "satellite" | "streets";
   showLayerToggle?: boolean;
 };
+
+/**
+ * Componente interno que actualiza el centro del mapa cuando cambia la prop center
+ */
+function MapUpdater({ center }: { center: { lat: number; lng: number } | null }) {
+  const map = useMap();
+
+  useEffect(() => {
+    if (center && isFiniteNumber(center.lat) && isFiniteNumber(center.lng)) {
+      // Usar flyTo para animación suave
+      map.flyTo([center.lat, center.lng], 14, {
+        duration: 1.5, // 1.5 segundos de animación
+      });
+    }
+  }, [center, map]);
+
+  return null;
+}
 
 export default function MapStations({
   center,
@@ -100,6 +118,10 @@ export default function MapStations({
         style={{ width: "100%", height: "100%" }}
       >
         <TileLayer url={tile.url} attribution={tile.attribution} />
+
+        {/* Componente que actualiza el centro reactivamente */}
+        <MapUpdater center={center} />
+
         {markers.map((s) => (
           <Marker key={s.id} position={[s.lat!, s.lng!]}>
             <Popup>
