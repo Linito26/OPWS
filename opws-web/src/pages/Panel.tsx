@@ -188,6 +188,40 @@ export default function Panel() {
     }
   }
 
+  /* ============ Descargar gráfica como PNG ============ */
+  async function downloadChartPNG() {
+    const container = document.getElementById("panel-chart-container");
+    if (!container) return;
+
+    try {
+      const domtoimage = await import("dom-to-image");
+      const toPng = domtoimage.default?.toPng || (domtoimage as any).toPng;
+
+      if (!toPng) {
+        throw new Error("toPng no disponible");
+      }
+
+      const dataUrl = await toPng(container, {
+        quality: 1.0,
+        bgcolor: "#ffffff",
+        width: container.offsetWidth * 2,
+        height: container.offsetHeight * 2,
+        style: {
+          transform: "scale(2)",
+          transformOrigin: "top left",
+        },
+      });
+
+      const link = document.createElement("a");
+      link.download = `OPWS_panel_${date}.png`;
+      link.href = dataUrl;
+      link.click();
+    } catch (error) {
+      console.error("Error al exportar PNG:", error);
+      alert("Error al generar la imagen. Intenta de nuevo.");
+    }
+  }
+
   /* ============ Render ============ */
   return (
     <div className="min-h-[calc(100vh-64px)]">
@@ -287,7 +321,18 @@ export default function Panel() {
             </div>
 
             {/* Gráfica + leyenda clickeable */}
-            <div className="rounded-xl border border-neutral-200 bg-white/70 p-3 sm:p-4">
+            <div className="rounded-xl border border-neutral-200 bg-white/70 p-3 sm:p-4" id="panel-chart-container">
+              <div className="flex items-center justify-between mb-3">
+                <h4 className="text-sm font-semibold text-neutral-700">Gráfica combinada</h4>
+                <button
+                  onClick={downloadChartPNG}
+                  className="px-3 py-1.5 text-xs font-medium rounded-lg bg-white hover:bg-neutral-50 transition-colors border border-neutral-200"
+                  title="Descargar gráfica como PNG"
+                >
+                  📷 Descargar PNG
+                </button>
+              </div>
+
               <ChartMulti series={series} enabled={enabled} height={280} />
 
               <div className="mt-3 mb-4 flex flex-wrap gap-2">
@@ -423,7 +468,7 @@ function ChartMulti({
       .map((p, i) => `${i ? "L" : "M"} ${x(p.t).toFixed(1)} ${y(p.v).toFixed(1)}`)
       .join(" ");
   return (
-    <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-[280px]">
+    <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-[280px]" id="panel-chart-svg">
       <g stroke="#e5e7eb" strokeWidth="1">
         {[0.25, 0.5, 0.75].map((r) => (
           <line key={r} x1={pad} x2={width - pad} y1={pad + (height - pad * 2) * r} y2={pad + (height - pad * 2) * r} />
@@ -431,15 +476,31 @@ function ChartMulti({
       </g>
       {KEYS.map(({ key, color }) =>
         enabled[key] && (series[key] ?? []).length ? (
-          <path
-            key={key}
-            d={pathFor(series[key] as any)}
-            fill="none"
-            stroke={color}
-            strokeWidth={2}
-            strokeLinejoin="round"
-            strokeLinecap="round"
-          />
+          <g key={key}>
+            <path
+              d={pathFor(series[key] as any)}
+              fill="none"
+              stroke={color}
+              strokeWidth={2}
+              strokeLinejoin="round"
+              strokeLinecap="round"
+            />
+            {/* Marcadores en cada punto */}
+            {(series[key] as Point[])
+              .slice()
+              .sort((a, b) => +new Date(a.t) - +new Date(b.t))
+              .map((p, i) => (
+                <circle
+                  key={`${key}-${i}`}
+                  cx={x(p.t)}
+                  cy={y(p.v)}
+                  r={3}
+                  fill={color}
+                  stroke="#fff"
+                  strokeWidth={1.5}
+                />
+              ))}
+          </g>
         ) : null
       )}
     </svg>

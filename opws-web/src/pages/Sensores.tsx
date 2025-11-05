@@ -539,41 +539,52 @@ function ChartCard({
 
   const downloadPNG = async () => {
     if (!cardRef.current) return;
-  
+
     try {
       // Importar todo el módulo
       const domtoimage = await import('dom-to-image');
-      
+
       // Acceder a toPng correctamente
       const toPng = domtoimage.default?.toPng || (domtoimage as any).toPng;
-      
+
       if (!toPng) {
         throw new Error('toPng no disponible');
       }
-  
+
+      // Obtener dimensiones reales del contenedor
+      const rect = cardRef.current.getBoundingClientRect();
+      const scale = 2; // Factor de escala para mejor calidad
+
       const dataUrl = await toPng(cardRef.current, {
         quality: 1.0,
         bgcolor: '#ffffff',
-        width: cardRef.current.offsetWidth * 2,
-        height: cardRef.current.offsetHeight * 2,
+        width: rect.width,
+        height: rect.height,
+        style: {
+          transform: `scale(${scale})`,
+          transformOrigin: 'top left',
+          width: `${rect.width}px`,
+          height: `${rect.height}px`,
+        },
       });
-  
+
       const link = document.createElement('a');
       link.download = `${fileBase}_completo.png`;
       link.href = dataUrl;
       link.click();
     } catch (error) {
       console.error("Error al exportar PNG:", error);
-      
-      // Fallback simple
+
+      // Fallback simple sin escala
       try {
         const domtoimage = await import('dom-to-image');
         const toPng = domtoimage.default?.toPng || (domtoimage as any).toPng;
-        
+
         const dataUrl = await toPng(cardRef.current, {
+          quality: 0.95,
           bgcolor: '#ffffff',
         });
-        
+
         const link = document.createElement('a');
         link.download = `${fileBase}_completo.png`;
         link.href = dataUrl;
@@ -783,9 +794,14 @@ function ChartCard({
                     dataKey="value"
                     stroke={color}
                     strokeWidth={3}
-                    dot={false}
-                    activeDot={{ 
-                      r: 5, 
+                    dot={{
+                      r: 4,
+                      fill: color,
+                      stroke: "#fff",
+                      strokeWidth: 2
+                    }}
+                    activeDot={{
+                      r: 6,
                       fill: color,
                       stroke: "#fff",
                       strokeWidth: 2
