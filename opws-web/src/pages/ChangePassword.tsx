@@ -1,10 +1,19 @@
 // src/pages/ChangePassword.tsx
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { http } from "../config/api";
 import { useAuth } from "../auth/AuthContext";
 
 type ChangePwdResponse = { ok?: boolean; access: string };
+
+type PasswordPolicy = {
+  minLength: number;
+  requireUppercase: boolean;
+  requireLowercase: boolean;
+  requireNumber: boolean;
+  requireSymbol: boolean;
+  historyCount: number;
+};
 
 const POLICY = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^\w\s]).{8,}$/;
 
@@ -16,9 +25,32 @@ export default function ChangePassword() {
   const [error, setError] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [policy, setPolicy] = useState<PasswordPolicy | null>(null);
 
   const { user, login, markPasswordChanged } = useAuth();
   const navigate = useNavigate();
+
+  // Cargar la política de contraseñas al montar el componente
+  useEffect(() => {
+    async function loadPolicy() {
+      try {
+        const data = await http<PasswordPolicy>("/auth/password-policy");
+        setPolicy(data);
+      } catch (err) {
+        console.error("Error al cargar política de contraseñas:", err);
+        // Usar política por defecto si falla
+        setPolicy({
+          minLength: 8,
+          requireUppercase: true,
+          requireLowercase: true,
+          requireNumber: true,
+          requireSymbol: true,
+          historyCount: 5,
+        });
+      }
+    }
+    loadPolicy();
+  }, []);
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -87,9 +119,25 @@ export default function ChangePassword() {
           {/* Header */}
           <div className="p-5 sm:p-6 border-b">
             <h3 className="text-lg font-semibold text-neutral-900">Actualiza tu contraseña</h3>
-            <p className="text-sm text-neutral-500">
-              Mínimo 8 caracteres, mayúscula, minúscula, número y símbolo.
-            </p>
+            {policy ? (
+              <div className="mt-2 text-sm text-neutral-600 space-y-1">
+                <p className="font-medium">La contraseña debe cumplir con:</p>
+                <ul className="list-disc list-inside space-y-0.5 text-neutral-500">
+                  <li>Mínimo {policy.minLength} caracteres</li>
+                  {policy.requireUppercase && <li>Al menos una letra mayúscula (A-Z)</li>}
+                  {policy.requireLowercase && <li>Al menos una letra minúscula (a-z)</li>}
+                  {policy.requireNumber && <li>Al menos un número (0-9)</li>}
+                  {policy.requireSymbol && <li>Al menos un símbolo especial (!@#$%...)</li>}
+                  {policy.historyCount > 0 && (
+                    <li>No puede ser igual a las últimas {policy.historyCount} contraseñas</li>
+                  )}
+                </ul>
+              </div>
+            ) : (
+              <p className="text-sm text-neutral-500">
+                Mínimo 8 caracteres, mayúscula, minúscula, número y símbolo.
+              </p>
+            )}
           </div>
 
           {/* Form */}

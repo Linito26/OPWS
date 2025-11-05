@@ -100,10 +100,25 @@ auth.get("/me", requireAuth, async (req, res) => {
   return res.json({ user: mapProfile(u) });
 });
 
+/* ===== /auth/password-policy =====
+ * Endpoint público que devuelve las reglas de contraseña
+ * Devuelve: { minLength, requireUppercase, requireLowercase, requireNumber, requireSymbol, historyCount }
+ */
+auth.get("/password-policy", (_req, res) => {
+  return res.json({
+    minLength: 8,
+    requireUppercase: true,
+    requireLowercase: true,
+    requireNumber: true,
+    requireSymbol: true,
+    historyCount: 5,
+  });
+});
+
 /* ===== /auth/change-password =====
  * Requiere JWT (Authorization: Bearer ...)
  * Body: { currentPassword, newPassword }
- * Aplica política y pone mustChangePassword=false
+ * Aplica política, verifica historial y pone mustChangePassword=false
  * Devuelve: { ok: true, access }
  */
 auth.post("/change-password", async (req, res) => {
@@ -139,10 +154,51 @@ auth.post("/change-password", async (req, res) => {
   const ok = await bcrypt.compare(currentPassword, u.password);
   if (!ok) return res.status(401).json({ error: "Contraseña actual incorrecta" });
 
+  // Obtener las últimas 5 contraseñas del historial
+  const history = await prisma.passwordHistory.findMany({
+    where: { usuarioId: u.id },
+    orderBy: { creadoEn: "desc" },
+    take: 5,
+  });
+
+  // Verificar si la nueva contraseña coincide con alguna del historial
+  for (const record of history) {
+    const matches = await bcrypt.compare(newPassword, record.passwordHash);
+    if (matches) {
+      return res
+        .status(400)
+        .json({ error: "No puedes reutilizar tus últimas 5 contraseñas" });
+    }
+  }
+
+  // Guardar la contraseña ACTUAL en el historial antes de cambiarla
+  await prisma.passwordHistory.create({
+    data: {
+      usuarioId: u.id,
+      passwordHash: u.password, // Guardamos el hash actual
+    },
+  });
+
+  // Actualizar a la nueva contraseña
+  const newHash = await bcrypt.hash(newPassword, 12);
   await prisma.usuario.update({
     where: { id: u.id },
-    data: { password: await bcrypt.hash(newPassword, 12), mustChangePassword: false, intentosFallidos: 0 },
+    data: { password: newHash, mustChangePassword: false, intentosFallidos: 0 },
   });
+
+  // Limpiar el historial para mantener solo las últimas 5
+  const allHistory = await prisma.passwordHistory.findMany({
+    where: { usuarioId: u.id },
+    orderBy: { creadoEn: "desc" },
+  });
+
+  if (allHistory.length > 5) {
+    // Eliminar las más antiguas
+    const idsToDelete = allHistory.slice(5).map((h) => h.id);
+    await prisma.passwordHistory.deleteMany({
+      where: { id: { in: idsToDelete } },
+    });
+  }
 
   const role = (await prisma.rol.findUnique({ where: { id: u.rolId ?? 0 } }))?.nombre ?? undefined;
   const access = signToken({ id: u.id, role, mcp: false });

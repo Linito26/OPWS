@@ -131,6 +131,7 @@ rol Rol? @relation(fields: [rolId], references: [id], onDelete: SetNull)
 // Rel.
 permisos UsuarioPermiso[]
 tokens Token[]
+passwordHistory PasswordHistory[]
 
 creadoEn DateTime @map("creado_en") @default(now())
 actualizadoEn DateTime @map("actualizado_en") @default(now())
@@ -211,4 +212,21 @@ usadoEn DateTime? @map("usado_en")
 creadoEn DateTime @map("creado_en") @default(now())
 
 @@index([usuarioId])
+}
+
+/* =========================
+NUEVO (historial de contraseñas)
+========================= */
+
+model PasswordHistory {
+@@map("password_history")
+id Int @id @default(autoincrement())
+usuarioId Int @map("usuario_id")
+passwordHash String @map("password_hash")
+creadoEn DateTime @map("creado_en") @default(now())
+
+usuario Usuario @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+
+@@index([usuarioId])
+@@index([creadoEn])
 }
