@@ -5,7 +5,7 @@
  *
  * Uso:
  *   pnpm seed:sensors --days=30 --station=1 --clean
- *   pnpm seed:sensors --days=7 --station=2
+ *   pnpm seed:sensors --days=7 --all-stations --clean
  *   pnpm seed:sensors --help
  */
 
@@ -32,7 +32,8 @@ interface SensorReading {
 
 interface Config {
   days: number;
-  stationId: number;
+  stationId: number | null;  // ✨ Ahora puede ser null
+  allStations: boolean;       // ✨ NUEVO
   clean: boolean;
   intervalMinutes: number;
 }
@@ -243,7 +244,7 @@ async function generateSensorReadings(config: Config): Promise<void> {
 
   // Verificar que la estación existe
   const estacion = await prisma.estacion.findUnique({
-    where: { id: config.stationId },
+    where: { id: config.stationId! },
   });
 
   if (!estacion) {
@@ -281,7 +282,7 @@ async function generateSensorReadings(config: Config): Promise<void> {
   if (config.clean) {
     console.log("🧹 Limpiando datos anteriores...");
     const deleted = await prisma.medicion.deleteMany({
-      where: { estacionId: config.stationId },
+      where: { estacionId: config.stationId! },
     });
     console.log(`✓ ${deleted.count} registros eliminados\n`);
   }
@@ -319,35 +320,35 @@ async function generateSensorReadings(config: Config): Promise<void> {
 
     // Agregar lecturas
     readings.push({
-      estacionId: config.stationId,
+      estacionId: config.stationId!,
       tipoId: tiposByClave.get("air_temp_c")!.id,
       instante: timestamp,
       valor: Number(airTemp.toFixed(2)),
     });
 
     readings.push({
-      estacionId: config.stationId,
+      estacionId: config.stationId!,
       tipoId: tiposByClave.get("air_humidity_pct")!.id,
       instante: timestamp,
       valor: Number(airHumidity.toFixed(2)),
     });
 
     readings.push({
-      estacionId: config.stationId,
+      estacionId: config.stationId!,
       tipoId: tiposByClave.get("soil_moisture_pct")!.id,
       instante: timestamp,
       valor: Number(soilMoisture.toFixed(2)),
     });
 
     readings.push({
-      estacionId: config.stationId,
+      estacionId: config.stationId!,
       tipoId: tiposByClave.get("luminosity_lx")!.id,
       instante: timestamp,
       valor: Number(luminosity.toFixed(0)),
     });
 
     readings.push({
-      estacionId: config.stationId,
+      estacionId: config.stationId!,
       tipoId: tiposByClave.get("rainfall_mm")!.id,
       instante: timestamp,
       valor: Number(rainfall.toFixed(2)),
@@ -414,6 +415,7 @@ USO:
 OPCIONES:
   --days=N          Número de días a generar (default: 30)
   --station=ID      ID de la estación (default: 1)
+  --all-stations    Generar datos para TODAS las estaciones activas 🆕
   --clean           Eliminar datos anteriores antes de insertar
   --interval=N      Intervalo en minutos (default: 15)
   --help, -h        Mostrar esta ayuda
@@ -421,7 +423,8 @@ OPCIONES:
 EJEMPLOS:
   pnpm seed:sensors --days=30 --station=1 --clean
   pnpm seed:sensors --days=7 --station=2
-  pnpm seed:sensors --days=60 --interval=5
+  pnpm seed:sensors --days=30 --all-stations --clean 🆕
+  pnpm seed:sensors --days=60 --interval=5 --all-stations
 
 DATOS GENERADOS:
   • Temperatura aire: 20-32°C (pico 12:00-15:00)
@@ -436,6 +439,7 @@ DATOS GENERADOS:
   const config: Config = {
     days: 30,
     stationId: 1,
+    allStations: false,  // ✨ NUEVO
     clean: false,
     intervalMinutes: 15,
   };
@@ -445,6 +449,9 @@ DATOS GENERADOS:
       config.days = parseInt(arg.split("=")[1], 10);
     } else if (arg.startsWith("--station=")) {
       config.stationId = parseInt(arg.split("=")[1], 10);
+    } else if (arg === "--all-stations") {  // ✨ NUEVO
+      config.allStations = true;
+      config.stationId = null;
     } else if (arg === "--clean") {
       config.clean = true;
     } else if (arg.startsWith("--interval=")) {
@@ -456,8 +463,8 @@ DATOS GENERADOS:
   if (isNaN(config.days) || config.days <= 0) {
     throw new Error("❌ --days debe ser un número positivo");
   }
-  if (isNaN(config.stationId) || config.stationId <= 0) {
-    throw new Error("❌ --station debe ser un número positivo");
+  if (!config.allStations && (!config.stationId || isNaN(config.stationId) || config.stationId <= 0)) {
+    throw new Error("❌ --station debe ser un número positivo o usar --all-stations");
   }
   if (isNaN(config.intervalMinutes) || config.intervalMinutes <= 0) {
     throw new Error("❌ --interval debe ser un número positivo");
@@ -473,11 +480,50 @@ async function main() {
 
   try {
     const config = parseArgs();
-    await generateSensorReadings(config);
 
-    console.log("=".repeat(60));
-    console.log("✨ ¡Proceso completado exitosamente!");
-    console.log("=".repeat(60) + "\n");
+    // ✨ NUEVO: Generar para todas las estaciones
+    if (config.allStations) {
+      const estaciones = await prisma.estacion.findMany({
+        where: { activo: true },
+        select: { id: true, nombre: true, codigo: true },
+        orderBy: { id: 'asc' }
+      });
+
+      if (estaciones.length === 0) {
+        throw new Error("❌ No se encontraron estaciones activas");
+      }
+
+      console.log(`\n📍 Se generarán datos para ${estaciones.length} estaciones:\n`);
+      estaciones.forEach(e => {
+        console.log(`   • ${e.nombre} (${e.codigo}) - ID: ${e.id}`);
+      });
+      console.log();
+
+      for (let i = 0; i < estaciones.length; i++) {
+        const estacion = estaciones[i];
+        
+        console.log("\n" + "=".repeat(60));
+        console.log(`  📍 [${i + 1}/${estaciones.length}] ${estacion.nombre} (${estacion.codigo})`);
+        console.log("=".repeat(60));
+
+        await generateSensorReadings({
+          ...config,
+          stationId: estacion.id,
+        });
+      }
+
+      console.log("\n" + "=".repeat(60));
+      console.log(`✨ Datos generados para todas las ${estaciones.length} estaciones`);
+      console.log("=".repeat(60) + "\n");
+      
+    } else {
+      // Modo original: una sola estación
+      await generateSensorReadings(config);
+
+      console.log("=".repeat(60));
+      console.log("✨ ¡Proceso completado exitosamente!");
+      console.log("=".repeat(60) + "\n");
+    }
   } catch (error) {
     console.error("\n❌ Error:", error instanceof Error ? error.message : error);
     process.exit(1);
