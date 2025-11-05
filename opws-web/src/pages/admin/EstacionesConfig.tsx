@@ -17,10 +17,17 @@ type Estacion = {
   id: number;
   codigo: string | null;
   nombre: string;
-  latitud: number | null;
-  longitud: number | null;
+  latitud: any; // Puede venir como Decimal desde Prisma
+  longitud: any; // Puede venir como Decimal desde Prisma
   activo: boolean;
 };
+
+// Helper para convertir Decimal/string a number de forma segura
+function toNum(val: any): number | null {
+  if (val === null || val === undefined) return null;
+  const n = Number(val);
+  return isNaN(n) ? null : n;
+}
 
 export default function EstacionesConfig() {
   const [estaciones, setEstaciones] = useState<Estacion[]>([]);
@@ -45,8 +52,10 @@ export default function EstacionesConfig() {
       setEstaciones(Array.isArray(data) ? data : []);
       if (data.length && !selectedId) {
         setSelectedId(data[0].id);
-        if (data[0].latitud && data[0].longitud) {
-          setMapPosition({ lat: data[0].latitud, lng: data[0].longitud });
+        const lat = toNum(data[0].latitud);
+        const lng = toNum(data[0].longitud);
+        if (lat !== null && lng !== null) {
+          setMapPosition({ lat, lng });
         }
       }
     } catch (e: any) {
@@ -59,8 +68,12 @@ export default function EstacionesConfig() {
   const selectedStation = estaciones.find((e) => e.id === selectedId);
 
   useEffect(() => {
-    if (selectedStation && selectedStation.latitud && selectedStation.longitud) {
-      setMapPosition({ lat: selectedStation.latitud, lng: selectedStation.longitud });
+    if (selectedStation) {
+      const lat = toNum(selectedStation.latitud);
+      const lng = toNum(selectedStation.longitud);
+      if (lat !== null && lng !== null) {
+        setMapPosition({ lat, lng });
+      }
     }
   }, [selectedStation?.id]);
 
@@ -175,14 +188,17 @@ export default function EstacionesConfig() {
 
                 {selectedStation && (
                   <div className="text-sm text-neutral-600">
-                    {selectedStation.latitud && selectedStation.longitud ? (
-                      <span>
-                        Ubicación actual: {selectedStation.latitud.toFixed(6)},{" "}
-                        {selectedStation.longitud.toFixed(6)}
-                      </span>
-                    ) : (
-                      <span className="text-orange-600">Sin ubicación definida</span>
-                    )}
+                    {(() => {
+                      const lat = toNum(selectedStation.latitud);
+                      const lng = toNum(selectedStation.longitud);
+                      return lat !== null && lng !== null ? (
+                        <span>
+                          Ubicación actual: {lat.toFixed(6)}, {lng.toFixed(6)}
+                        </span>
+                      ) : (
+                        <span className="text-orange-600">Sin ubicación definida</span>
+                      );
+                    })()}
                   </div>
                 )}
               </div>

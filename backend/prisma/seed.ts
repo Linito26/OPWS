@@ -33,33 +33,51 @@ async function seedTiposMedicion() {
 }
 
 /* =========================
-   2) ESTACIÓN DEMO (única)
+   2) ESTACIONES (múltiples)
    ========================= */
-async function seedEstacionDemo() {
-  const codigo = "EST-01";
-  await prisma.estacion.upsert({
-    where: { codigo },
-    update: {
-      nombre: "Estación 1",
+async function seedEstaciones() {
+  const estaciones = [
+    {
+      codigo: "EST-01",
+      nombre: "Estación Central",
       zonaHoraria: "America/Guatemala",
       latitud: "15.700000",
       longitud: "-88.600000",
       elevacion_m: "20.00",
-      notas: "Estación de ejemplo creada por el seed",
+      notas: "Estación principal en zona central",
       activo: true,
     },
-    create: {
-      codigo,
-      nombre: "Estación 1",
+    {
+      codigo: "EST-02",
+      nombre: "Estación Norte",
       zonaHoraria: "America/Guatemala",
-      latitud: "15.700000",
-      longitud: "-88.600000",
-      elevacion_m: "20.00",
-      notas: "Estación de ejemplo creada por el seed",
+      latitud: "15.750000",
+      longitud: "-88.650000",
+      elevacion_m: "35.00",
+      notas: "Estación ubicada en zona norte",
       activo: true,
     },
-  });
-  console.log(`✓ Estacion: ${codigo} lista`);
+    {
+      codigo: "EST-03",
+      nombre: "Estación Sur",
+      zonaHoraria: "America/Guatemala",
+      latitud: "15.650000",
+      longitud: "-88.550000",
+      elevacion_m: "15.00",
+      notas: "Estación ubicada en zona sur",
+      activo: true,
+    },
+  ];
+
+  for (const est of estaciones) {
+    await prisma.estacion.upsert({
+      where: { codigo: est.codigo },
+      update: { ...est },
+      create: { ...est },
+    });
+  }
+
+  console.log(`✓ Estaciones: ${estaciones.length} creadas/actualizadas`);
 }
 
 /* ======================================================
@@ -152,17 +170,140 @@ async function seedRolesPermisosYAdmin() {
     skipDuplicates: true,
   });
 
-  // 5) Usuario admin
-  const email = "admin@opws.test";
-  const passHash = await bcrypt.hash("admin123", 12);
+  // 5) Usuarios
+  const usuarios = [
+    {
+      email: "admin@opws.test",
+      password: "admin123",
+      rolId: rolAdmin.id,
+      nombre: "Administrador",
+      apellido: "Sistema",
+      username: "admin",
+      mustChangePassword: false,
+      activo: true,
+    },
+    {
+      email: "viewer@opws.test",
+      password: "viewer123",
+      rolId: rolViewer.id,
+      nombre: "Visualizador",
+      apellido: "Demo",
+      username: "viewer",
+      mustChangePassword: false,
+      activo: true,
+    },
+  ];
 
-  await prisma.usuario.upsert({
-    where: { email },
-    update: { password: passHash, rolId: rolAdmin.id, nombre: "Admin", activo: true, mustChangePassword: false },
-    create: { email, password: passHash, rolId: rolAdmin.id, nombre: "Admin", activo: true, mustChangePassword: false },
-  });
+  for (const u of usuarios) {
+    const passHash = await bcrypt.hash(u.password, 12);
+    await prisma.usuario.upsert({
+      where: { email: u.email },
+      update: {
+        password: passHash,
+        rolId: u.rolId,
+        nombre: u.nombre,
+        apellido: u.apellido,
+        username: u.username,
+        activo: u.activo,
+        mustChangePassword: u.mustChangePassword,
+      },
+      create: {
+        email: u.email,
+        password: passHash,
+        rolId: u.rolId,
+        nombre: u.nombre,
+        apellido: u.apellido,
+        username: u.username,
+        activo: u.activo,
+        mustChangePassword: u.mustChangePassword,
+      },
+    });
+  }
 
-  console.log("✓ Roles (ADMINISTRADOR / VISUALIZADOR) y usuario admin listos");
+  console.log("✓ Roles (ADMINISTRADOR / VISUALIZADOR) y usuarios listos");
+  console.log("  - admin@opws.test / admin123");
+  console.log("  - viewer@opws.test / viewer123");
+}
+
+/* =========================
+   5) MEDICIONES DE EJEMPLO
+   ========================= */
+async function seedMedicionesEjemplo() {
+  const estacion = await prisma.estacion.findUnique({ where: { codigo: "EST-01" } });
+  if (!estacion) {
+    console.log("⚠ No se encontró EST-01, saltando mediciones de ejemplo");
+    return;
+  }
+
+  const tipos = await prisma.tipoMedicion.findMany();
+  const tiposByClave = new Map(tipos.map(t => [t.clave, t]));
+
+  // Generar datos para los últimos 7 días, cada hora
+  const now = new Date();
+  const mediciones: any[] = [];
+
+  for (let d = 6; d >= 0; d--) {
+    for (let h = 0; h < 24; h++) {
+      const instante = new Date(now);
+      instante.setDate(now.getDate() - d);
+      instante.setHours(h, 0, 0, 0);
+
+      // Temperatura aire (20-35°C, varía con hora del día)
+      const tempBase = 25 + 8 * Math.sin(((h - 6) / 12) * Math.PI);
+      mediciones.push({
+        estacionId: estacion.id,
+        tipoId: tiposByClave.get("air_temp_c")?.id,
+        instante,
+        valor: tempBase + (Math.random() - 0.5) * 2,
+      });
+
+      // Humedad relativa (60-90%)
+      const humBase = 75 - 10 * Math.sin(((h - 6) / 12) * Math.PI);
+      mediciones.push({
+        estacionId: estacion.id,
+        tipoId: tiposByClave.get("air_humidity_pct")?.id,
+        instante,
+        valor: Math.max(60, Math.min(90, humBase + (Math.random() - 0.5) * 5)),
+      });
+
+      // Humedad del suelo (40-70%)
+      mediciones.push({
+        estacionId: estacion.id,
+        tipoId: tiposByClave.get("soil_moisture_pct")?.id,
+        instante,
+        valor: 55 + (Math.random() - 0.5) * 10,
+      });
+
+      // Luminosidad (0-60000 lx, solo día)
+      const daylight = Math.max(0, Math.sin(((h - 6) / 12) * Math.PI));
+      mediciones.push({
+        estacionId: estacion.id,
+        tipoId: tiposByClave.get("luminosity_lx")?.id,
+        instante,
+        valor: Math.round(60000 * daylight * (0.8 + Math.random() * 0.4)),
+      });
+
+      // Precipitación (0-5mm, aleatoria)
+      mediciones.push({
+        estacionId: estacion.id,
+        tipoId: tiposByClave.get("rainfall_mm")?.id,
+        instante,
+        valor: Math.random() < 0.15 ? Math.random() * 5 : 0,
+      });
+    }
+  }
+
+  // Insertar en lotes para mejor rendimiento
+  const batchSize = 100;
+  for (let i = 0; i < mediciones.length; i += batchSize) {
+    const batch = mediciones.slice(i, i + batchSize).filter(m => m.tipoId);
+    await prisma.medicion.createMany({
+      data: batch,
+      skipDuplicates: true,
+    });
+  }
+
+  console.log(`✓ Mediciones de ejemplo: ${mediciones.length} insertadas para EST-01 (últimos 7 días)`);
 }
 
 /* =========================
@@ -170,10 +311,16 @@ async function seedRolesPermisosYAdmin() {
    ========================= */
 async function main() {
   await seedTiposMedicion();
-  await seedEstacionDemo();
+  await seedEstaciones();
   await seedDispositivoYMapeos();
   await seedRolesPermisosYAdmin();
-  console.log("Seed completo.");
+  await seedMedicionesEjemplo();
+  console.log("\n✅ Seed completo.");
+  console.log("\n📊 Resumen:");
+  console.log("  • 3 Estaciones creadas");
+  console.log("  • 2 Usuarios: admin@opws.test / viewer@opws.test");
+  console.log("  • Mediciones de ejemplo para los últimos 7 días");
+  console.log("  • Dispositivos TTN configurados");
 }
 
 main()

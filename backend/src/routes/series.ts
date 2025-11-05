@@ -1,6 +1,6 @@
 // backend/src/routes/series.ts
 import { Router, Request, Response } from "express";
-import { PrismaClient } from "@prisma/client";
+import { prisma } from "../lib/db";
 
 export const series = Router();
 
