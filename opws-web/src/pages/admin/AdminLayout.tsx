@@ -26,6 +26,12 @@ function deriveHeader(pathname: string): Header {
       subtitle: "Revisa y administra cuentas del sistema.",
     };
   }
+  if (/\/admin\/estaciones/.test(pathname)) {
+    return {
+      title: "Configurar estaciones",
+      subtitle: "Define la ubicación geográfica de cada estación.",
+    };
+  }
   return { title: "Administración", subtitle: "Gestión del sistema." };
 }
 

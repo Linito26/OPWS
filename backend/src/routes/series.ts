@@ -64,7 +64,7 @@ series.get("/series", async (req: Request, res: Response) => {
     const bucket = group; // hour|day|week|month
     const sumKeys = Array.from(dbKeys).filter(k => aggByDB[k]==="SUM");
 
-    const rows = await prisma.$queryRaw<{ clave_tipo: string; t: Date; v: number }[]>`
+    const rows = await prisma.$queryRaw<{ clave_tipo: string; t: Date; v: number; min_v: number; max_v: number }[]>`
       WITH base AS (
         SELECT t.clave AS clave_tipo,
                date_trunc(${bucket}::text, m.instante) AS t_bucket,
@@ -79,16 +79,23 @@ series.get("/series", async (req: Request, res: Response) => {
       SELECT clave_tipo,
              t_bucket AS t,
              CASE WHEN clave_tipo = ANY(${sumKeys}::text[]) THEN SUM(valor)
-                  ELSE AVG(valor) END AS v
+                  ELSE AVG(valor) END AS v,
+             MIN(valor) AS min_v,
+             MAX(valor) AS max_v
       FROM base
       GROUP BY clave_tipo, t_bucket
       ORDER BY t_bucket ASC
     `;
-    const out: Record<string, {t:string; v:number}[]> = {};
+    const out: Record<string, {t:string; v:number; min?:number; max?:number}[]> = {};
     for (const db of dbKeys) out[uiByDB[db]] = [];
     for (const r of rows) {
       const ui = uiByDB[r.clave_tipo] || r.clave_tipo;
-      out[ui].push({ t: r.t.toISOString(), v: Number(r.v) });
+      out[ui].push({
+        t: r.t.toISOString(),
+        v: Number(r.v),
+        min: Number(r.min_v),
+        max: Number(r.max_v)
+      });
     }
     return res.json(out);
   } catch (e:any) {

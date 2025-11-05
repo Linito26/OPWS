@@ -1,12 +1,7 @@
 // src/pages/Panel.tsx
-import { useEffect, useMemo, useState, useEffect as ReactUseEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { http } from "../config/api";
 import MapStations from "../components/MapStations";
-
-// (para el editor de waypoint)
-import { MapContainer, TileLayer, useMap, useMapEvents } from "react-leaflet";
-import L from "leaflet";
-import "leaflet/dist/leaflet.css";
 
 /* ================= Tipos ================= */
 type Estacion = {
@@ -69,17 +64,8 @@ export default function Panel() {
   const [demoMode, setDemoMode] = useState<boolean>(getInitialDemoFlag());
   const [usingMock, setUsingMock] = useState(false);
 
-  // Editor de ubicación
+  // Estación seleccionada
   const selected = estaciones.find(e => e.id === estacionId) || null;
-  const [editing, setEditing] = useState(false);
-  const [draftPos, setDraftPos] = useState<{lat: number, lng: number} | null>(null);
-  useEffect(() => {
-    if (selected && isNum(selected.latitud) && isNum(selected.longitud)) {
-      setDraftPos({ lat: Number(selected.latitud), lng: Number(selected.longitud) });
-    } else {
-      setDraftPos(null);
-    }
-  }, [selected?.id]);
 
   /* ============ Estaciones ============ */
   useEffect(() => {
@@ -164,29 +150,6 @@ export default function Panel() {
     lat: isNum(e.latitud) ? Number(e.latitud) : null,
     lng: isNum(e.longitud) ? Number(e.longitud) : null,
   }));
-
-  /* ============ Guardar ubicación (optimista) ============ */
-  async function saveDraftPosition() {
-    if (!estacionId || !draftPos) return;
-    try {
-      const body = { latitud: draftPos.lat, longitud: draftPos.lng };
-      // intenta endpoint admin, si 404 prueba público
-      try {
-        await http(`/admin/estaciones/${estacionId}`, { method: "PUT", body: JSON.stringify(body) });
-      } catch {
-        await http(`/estaciones/${estacionId}`, { method: "PUT", body: JSON.stringify(body) });
-      }
-      // actualiza el listado en memoria
-      setEstaciones(prev =>
-        prev.map(e => e.id === estacionId ? { ...e, latitud: body.latitud, longitud: body.longitud } : e)
-      );
-      setEditing(false);
-      alert("Ubicación actualizada.");
-    } catch (e: any) {
-      console.warn(e);
-      alert("No se pudo guardar la ubicación en la API. Se mantuvo el valor local.");
-    }
-  }
 
   /* ============ Descargar gráfica como PNG ============ */
   async function downloadChartPNG() {
@@ -364,51 +327,15 @@ export default function Panel() {
                   base="satellite"
                   showLayerToggle
                 />
-                {!center && (
+                {center ? (
                   <div className="mt-2 text-xs text-neutral-500">
-                    La estación seleccionada no tiene coordenadas cargadas.
+                    📍 Ubicación: {center.lat.toFixed(6)}, {center.lng.toFixed(6)}
+                  </div>
+                ) : (
+                  <div className="mt-2 text-xs text-orange-600">
+                    ⚠️ La estación seleccionada no tiene coordenadas cargadas. Un administrador puede configurarlas desde el panel de administración.
                   </div>
                 )}
-
-                {/* Editor de waypoint */}
-                <div className="mt-4 rounded-lg border border-neutral-200 p-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="text-sm text-neutral-700">
-                      <strong>Ubicación de la estación</strong>{" "}
-                      <span className="text-neutral-500">
-                        {draftPos ? `(lat ${draftPos.lat.toFixed(6)}, lng ${draftPos.lng.toFixed(6)})` : "(sin coordenadas)"}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => setEditing(v => !v)}
-                        className="px-3 py-1.5 text-sm rounded-md border bg-white hover:bg-neutral-50"
-                      >
-                        {editing ? "Cerrar editor" : "Editar ubicación"}
-                      </button>
-                      <button
-                        onClick={saveDraftPosition}
-                        disabled={!draftPos}
-                        className="px-3 py-1.5 text-sm rounded-md bg-emerald-600 text-white disabled:opacity-50"
-                      >
-                        Guardar ubicación
-                      </button>
-                    </div>
-                  </div>
-
-                  {editing && (
-                    <div className="mt-3">
-                      <EditorMap
-                        initial={draftPos ?? { lat: center?.lat ?? 15.726, lng: center?.lng ?? -88.599 }}
-                        onChange={(p) => setDraftPos(p)}
-                        height={320}
-                      />
-                      <div className="mt-2 text-xs text-neutral-500">
-                        Haz clic en el mapa para mover el waypoint o arrástralo; luego presiona <em>Guardar ubicación</em>.
-                      </div>
-                    </div>
-                  )}
-                </div>
               </div>
             </div>
           </div>
@@ -504,71 +431,6 @@ function ChartMulti({
         ) : null
       )}
     </svg>
-  );
-}
-
-/* ===== Editor de ubicación sin usar ref en <Marker/> (compat react-leaflet v5) ===== */
-function EditorMap({
-  initial,
-  onChange,
-  height = 360,
-}: {
-  initial: { lat: number; lng: number };
-  onChange: (p: { lat: number; lng: number }) => void;
-  height?: number;
-}) {
-  function ClickHandler() {
-    useMapEvents({
-      click(e) {
-        onChange({ lat: e.latlng.lat, lng: e.latlng.lng });
-      },
-    });
-    return null;
-  }
-
-  function LiveMarker({ pos }: { pos: { lat: number; lng: number } }) {
-    const map = useMap();
-    const markerRef = (LiveMarker as any)._ref as L.Marker | undefined;
-
-    if (!markerRef) {
-      const m = L.marker([pos.lat, pos.lng], { draggable: true }).addTo(map);
-      m.on("dragend", () => {
-        const ll = m.getLatLng();
-        onChange({ lat: ll.lat, lng: ll.lng });
-      });
-      (LiveMarker as any)._ref = m;
-    } else {
-      markerRef.setLatLng([pos.lat, pos.lng]);
-    }
-
-    ReactUseEffect(() => {
-      return () => {
-        const m: L.Marker | undefined = (LiveMarker as any)._ref;
-        if (m) {
-          m.remove();
-          (LiveMarker as any)._ref = undefined;
-        }
-      };
-    }, []);
-
-    return null;
-  }
-
-  return (
-    <div className="w-full" style={{ height }}>
-      <MapContainer
-        center={[initial.lat, initial.lng]}
-        zoom={13}
-        style={{ height: "100%", width: "100%", borderRadius: 12 }}
-      >
-        <TileLayer
-          attribution="&copy; OpenStreetMap contributors"
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-        />
-        <ClickHandler />
-        <LiveMarker pos={initial} />
-      </MapContainer>
-    </div>
   );
 }
 

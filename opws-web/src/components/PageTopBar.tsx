@@ -104,6 +104,15 @@ export default function PageTopBar() {
                   >
                     Crear usuario
                   </Link>
+
+                  <div className="my-1 h-px bg-neutral-200" />
+
+                  <Link
+                    to="/admin/estaciones"
+                    className="block px-3 py-2 rounded-md text-sm hover:bg-neutral-100"
+                  >
+                    Configurar estaciones
+                  </Link>
                 </div>
               )}
             </div>

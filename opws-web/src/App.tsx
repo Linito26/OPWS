@@ -15,6 +15,7 @@ import AdminLayout from "./pages/admin/AdminLayout";
 import AdminHome from "./pages/admin/AdminHome";
 import UsuariosList from "./pages/admin/UsuariosList";
 import AdminCrearUsuario from "./pages/admin/AdminCrearUsuario";
+import EstacionesConfig from "./pages/admin/EstacionesConfig";
 
 function Landing() {
   const { isAuthenticated } = useAuth();
@@ -77,6 +78,7 @@ function Shell() {
           <Route index element={<AdminHome />} />
           <Route path="usuarios" element={<UsuariosList />} />
           <Route path="usuarios/crear" element={<AdminCrearUsuario />} />
+          <Route path="estaciones" element={<EstacionesConfig />} />
         </Route>
 
         {/* compat: si alguien navega a /dashboard lo mandamos a /panel */}
