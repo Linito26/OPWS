@@ -196,6 +196,52 @@ export default function Sensores() {
     }
   }
 
+  /* ===== Exportar XLSX (sensor individual) ===== */
+  async function exportSingleSensor(sensorKey: SensorKey) {
+    // Encontrar la configuración del sensor
+    const sensorConfig = SENSORS.find(s => s.key === sensorKey);
+    if (!sensorConfig) return;
+
+    // Obtener los datos transformados del sensor
+    const pack = transformed[sensorKey];
+    if (!pack || !pack.data.length) {
+      alert("No hay datos para exportar");
+      return;
+    }
+
+    // Obtener el nombre de la estación
+    const estacionNombre = estaciones.find(e => e.id === estacionId)?.nombre || "Sin estación";
+
+    // Formato de fechas para el nombre del archivo
+    const fromLabel = fromISO.slice(0, 10).replace(/-/g, "");
+    const toLabel = toISO.slice(0, 10).replace(/-/g, "");
+
+    try {
+      // Carga dinámica para no inflar el bundle
+      const XLSX = await import("xlsx");
+
+      // Crear filas con la estructura: Fecha y Hora, Valor, Unidad, Estación
+      const rows = pack.data.map(r => ({
+        "Fecha y Hora": new Date(r.ts).toISOString(),
+        "Valor": r.value,
+        "Unidad": pack.unit,
+        "Estación": estacionNombre,
+      }));
+
+      // Crear workbook y worksheet
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.json_to_sheet(rows);
+      XLSX.utils.book_append_sheet(wb, ws, sensorConfig.label.slice(0, 31));
+
+      // Nombre del archivo: OPWS_[sensorLabel]_[fromDate]_[toDate].xlsx
+      const fileName = `OPWS_${sensorConfig.label.replace(/\s+/g, "_")}_${fromLabel}_${toLabel}.xlsx`;
+      XLSX.writeFile(wb, fileName);
+    } catch (e) {
+      console.error("Error al exportar:", e);
+      alert("Error al exportar el archivo");
+    }
+  }
+
   return (
     <div className="min-h-[calc(100vh-64px)]">
       {/* ===== Hero ===== */}
@@ -302,7 +348,7 @@ export default function Sensores() {
                   className="ml-1 px-3 py-2 text-sm rounded-md border bg-white hover:bg-neutral-50"
                   title="Exportar todas las series activas en XLSX"
                 >
-                  Exportar XLSX
+                  Exportar todos (XLSX)
                 </button>
               </div>
             </div>
@@ -332,6 +378,8 @@ export default function Sensores() {
                   data={data}
                   chart={s.chart}
                   fileBase={`opws_${s.key}`}
+                  sensorKey={s.key}
+                  onExportSingle={() => exportSingleSensor(s.key)}
                 />
               );
             })}
@@ -385,6 +433,8 @@ function ChartCard({
   data,
   chart = "line",
   fileBase = "opws_chart",
+  sensorKey,
+  onExportSingle,
 }: {
   title: string;
   unit: string;
@@ -393,6 +443,8 @@ function ChartCard({
   data: { ts: number; value: number }[];
   chart?: "line" | "bar";
   fileBase?: string;
+  sensorKey?: SensorKey;
+  onExportSingle?: () => void;
 }) {
   const id = useMemo(() => `g${Math.random().toString(36).slice(2)}`, []);
   const fmtTick = (ms: number) => {
@@ -442,11 +494,31 @@ function ChartCard({
     img.src = url;
   };
 
+  // Obtener el nombre del sensor para el tooltip
+  const sensorConfig = sensorKey ? SENSORS.find(s => s.key === sensorKey) : null;
+  const sensorName = sensorConfig?.label || "";
+
   return (
     <div className="rounded-2xl border border-neutral-200/80 bg-white/80 backdrop-blur-sm shadow-sm">
       <div className="p-4 sm:p-5 flex items-center justify-between">
-        <h3 className="text-base sm:text-lg font-semibold text-neutral-900">{title}</h3>
         <div className="flex items-center gap-2">
+          <h3 className="text-base sm:text-lg font-semibold text-neutral-900">{title}</h3>
+          {data.length > 0 && (
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-800">
+              {data.length} registros
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          {onExportSingle && data.length > 0 && (
+            <button
+              onClick={onExportSingle}
+              className="px-2.5 py-1.5 text-xs rounded-md border border-emerald-500 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition"
+              title={`Exportar solo ${sensorName}`}
+            >
+              Exportar Excel
+            </button>
+          )}
           <button
             onClick={downloadPNG}
             className="px-2.5 py-1.5 text-xs rounded-md border bg-white hover:bg-neutral-50"
