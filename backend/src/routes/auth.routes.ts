@@ -4,6 +4,11 @@ import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import jwt, { type SignOptions } from "jsonwebtoken";
 import { requireAuth } from "../middlewares/auth";
+import {
+  loginLimiter,
+  passwordChangeLimiter,
+  securityLogger,
+} from "../config/security";
 
 export const auth = Router();
 const prisma = new PrismaClient();
@@ -49,11 +54,16 @@ function mapProfile(u: any) {
  * Busca por email o username
  * Devuelve: { access, role, mustChangePassword, profile }
  */
-auth.post("/login", async (req, res) => {
+auth.post("/login", loginLimiter, async (req, res) => {
   const identifier = pickIdentifier(req.body);
   const password = req.body?.password as string | undefined;
 
   if (!identifier || !password) {
+    securityLogger.loginFailed(
+      identifier || "desconocido",
+      req.ip,
+      "Campos faltantes"
+    );
     return res.status(400).json({ error: "Email/usuario y contraseña requeridos" });
   }
 
@@ -66,16 +76,28 @@ auth.post("/login", async (req, res) => {
   });
 
   if (!user || !user.activo) {
+    securityLogger.loginFailed(
+      identifier,
+      req.ip,
+      user ? "Usuario inactivo" : "Usuario no encontrado"
+    );
     return res.status(401).json({ error: "Credenciales inválidas" });
   }
 
   const ok = await bcrypt.compare(password, user.password);
-  if (!ok) return res.status(401).json({ error: "Credenciales inválidas" });
+  if (!ok) {
+    securityLogger.loginFailed(identifier, req.ip, "Contraseña incorrecta");
+    return res.status(401).json({ error: "Credenciales inválidas" });
+  }
 
   const role = user.rol?.nombre ?? undefined;
   const mcp = !!user.mustChangePassword;
 
   const access = signToken({ id: user.id, role, mcp });
+
+  // Log exitoso (NO incluir el token completo)
+  securityLogger.loginSuccess(identifier, req.ip, user.id);
+
   return res.json({
     access,
     role: role ?? null,
@@ -106,18 +128,25 @@ auth.get("/me", requireAuth, async (req, res) => {
  * Aplica política y pone mustChangePassword=false
  * Devuelve: { ok: true, access }
  */
-auth.post("/change-password", async (req, res) => {
+auth.post("/change-password", passwordChangeLimiter, async (req, res) => {
   const hdr = req.headers.authorization ?? "";
   const token = hdr.startsWith("Bearer ") ? hdr.slice(7) : null;
-  if (!token) return res.status(401).json({ error: "Falta token" });
+  if (!token) {
+    securityLogger.unauthorized("/auth/change-password", req.ip, "Token faltante");
+    return res.status(401).json({ error: "Falta token" });
+  }
 
   let claims: JwtClaims | null = null;
   try {
     claims = jwt.verify(token, process.env.JWT_SECRET || "dev_secret_change_me") as JwtClaims;
   } catch {
+    securityLogger.unauthorized("/auth/change-password", req.ip, "Token inválido");
     return res.status(401).json({ error: "Token inválido" });
   }
-  if (!claims?.id) return res.status(401).json({ error: "Token inválido" });
+  if (!claims?.id) {
+    securityLogger.unauthorized("/auth/change-password", req.ip, "Token sin ID");
+    return res.status(401).json({ error: "Token inválido" });
+  }
 
   const { currentPassword, newPassword } = (req.body ?? {}) as {
     currentPassword?: string;
@@ -125,19 +154,27 @@ auth.post("/change-password", async (req, res) => {
   };
 
   if (!currentPassword || !newPassword) {
+    securityLogger.passwordChangeFailed(claims.id, req.ip, "Campos faltantes");
     return res.status(400).json({ error: "currentPassword y newPassword requeridos" });
   }
   if (!POLICY.test(newPassword)) {
+    securityLogger.passwordChangeFailed(claims.id, req.ip, "Política no cumplida");
     return res
       .status(400)
       .json({ error: "La contraseña no cumple la política (8+, mayúscula, minúscula, número y símbolo)" });
   }
 
   const u = await prisma.usuario.findUnique({ where: { id: claims.id } });
-  if (!u) return res.status(404).json({ error: "Usuario no encontrado" });
+  if (!u) {
+    securityLogger.passwordChangeFailed(claims.id, req.ip, "Usuario no encontrado");
+    return res.status(404).json({ error: "Usuario no encontrado" });
+  }
 
   const ok = await bcrypt.compare(currentPassword, u.password);
-  if (!ok) return res.status(401).json({ error: "Contraseña actual incorrecta" });
+  if (!ok) {
+    securityLogger.passwordChangeFailed(claims.id, req.ip, "Contraseña actual incorrecta");
+    return res.status(401).json({ error: "Contraseña actual incorrecta" });
+  }
 
   await prisma.usuario.update({
     where: { id: u.id },
@@ -146,6 +183,9 @@ auth.post("/change-password", async (req, res) => {
 
   const role = (await prisma.rol.findUnique({ where: { id: u.rolId ?? 0 } }))?.nombre ?? undefined;
   const access = signToken({ id: u.id, role, mcp: false });
+
+  // Log exitoso (NO incluir el token ni la contraseña)
+  securityLogger.passwordChanged(u.id, req.ip);
 
   return res.json({ ok: true, access });
 });

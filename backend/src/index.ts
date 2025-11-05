@@ -1,6 +1,7 @@
 import "dotenv/config";
 import express from "express";
 import cors from "cors";
+import helmet from "helmet";
 
 import { health } from "./routes/health";
 import { estaciones } from "./routes/estaciones";
@@ -11,13 +12,33 @@ import { auth } from "./routes/auth.routes";
 import { users } from "./routes/users"; // ADMIN
 
 import { requireAuth, requirePasswordChanged } from "./middlewares/auth";
+import { validateSecrets, globalLimiter } from "./config/security";
+
+// ===== Validación de secrets al inicio =====
+validateSecrets();
 
 const app = express();
 app.disable("x-powered-by");
 
-// CORS
-const ALLOWED = (process.env.CORS_ORIGINS ??
-  "http://localhost:5173,http://localhost:2002,http://127.0.0.1:5173")
+// ===== Helmet: Headers de seguridad =====
+app.use(
+  helmet({
+    contentSecurityPolicy: false, // Desactivado para permitir uso flexible del API
+    crossOriginEmbedderPolicy: false, // Para compatibilidad con recursos embebidos
+    hsts: {
+      maxAge: 31536000, // 1 año
+      includeSubDomains: true,
+      preload: true,
+    },
+  })
+);
+
+// ===== CORS =====
+const ALLOWED = (
+  process.env.CORS_ORIGINS ??
+  process.env.FRONTEND_URL ??
+  "http://localhost:5173,http://localhost:2002,http://127.0.0.1:5173"
+)
   .split(",")
   .map((s) => s.trim());
 
@@ -31,8 +52,11 @@ app.use(
   })
 );
 
-// Body parser
-app.use(express.json({ limit: "1mb" }));
+// ===== Body parser con límite de payload =====
+app.use(express.json({ limit: process.env.JSON_LIMIT || "10mb" }));
+
+// ===== Rate Limiting Global =====
+app.use(globalLimiter);
 
 /* =========================
    Rutas de salud
