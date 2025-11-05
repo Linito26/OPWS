@@ -5,6 +5,7 @@ import cors from "cors";
 import { health } from "./routes/health";
 import { estaciones } from "./routes/estaciones";
 import { series } from "./routes/series";
+import { ttn } from "./routes/ttn";
 
 import { auth } from "./routes/auth.routes";
 import { users } from "./routes/users"; // ADMIN
@@ -46,6 +47,7 @@ app.use("/api/health", health);
    Rutas públicas
    ========================= */
 app.use("/api/auth", auth); // login, change-password, etc.
+app.use("/api/ttn", ttn); // webhook de The Things Network
 
 /* =========================
    Rutas protegidas
