@@ -1,6 +1,6 @@
 // src/pages/admin/EstacionesConfig.tsx
 import { useEffect, useState } from "react";
-import { MapContainer, TileLayer, Marker, useMapEvents } from "react-leaflet";
+import { MapContainer, TileLayer, Marker, useMapEvents, useMap } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { http } from "../../config/api";
@@ -269,6 +269,22 @@ function MapWithClick({
     return null;
   }
 
+  // Componente que actualiza el centro del mapa cuando cambia position
+  function MapPositionUpdater({ position }: { position: { lat: number; lng: number } | null }) {
+    const map = useMap();
+
+    useEffect(() => {
+      if (position) {
+        // Usar flyTo para animación suave cuando cambia la posición
+        map.flyTo([position.lat, position.lng], 13, {
+          duration: 1.5, // 1.5 segundos de animación
+        });
+      }
+    }, [position, map]);
+
+    return null;
+  }
+
   return (
     <div style={{ height }}>
       <MapContainer
@@ -281,6 +297,10 @@ function MapWithClick({
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
         <ClickHandler />
+
+        {/* Componente que actualiza el centro cuando cambia position */}
+        <MapPositionUpdater position={position} />
+
         {position && (
           <Marker
             position={[position.lat, position.lng]}

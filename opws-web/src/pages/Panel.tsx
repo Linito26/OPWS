@@ -15,12 +15,12 @@ type Point = { t: string; v: number };
 type SeriesMap = Record<string, Point[]>;
 
 /* ================= Series/leyenda ================= */
+// Luminosidad removida de la gráfica (solo se muestra como KPI)
 const KEYS = [
   { key: "rainfall_mm", label: "Precipitación (mm)", color: "#059669" },
   { key: "air_temp_c", label: "Temp. aire (°C)", color: "#f43f5e" },
   { key: "air_humidity_pct", label: "Humedad relativa (%)", color: "#0ea5e9" },
   { key: "soil_moisture_pct", label: "Humedad del suelo (%)", color: "#65a30d" },
-  { key: "luminosity_lx", label: "Luminosidad (lx)", color: "#f59e0b" },
 ] as const;
 
 /* ================= DEMO helpers ================= */
@@ -102,11 +102,13 @@ export default function Panel() {
         } else {
           const from = new Date(date + "T00:00:00");
           const to = new Date(date + "T23:59:59.999");
+          // Incluir luminosity_lx para el KPI aunque no esté en la gráfica
+          const allKeys = [...KEYS.map((k) => k.key), "luminosity_lx"];
           const qs = new URLSearchParams({
             estacionId: String(estacionId),
             from: from.toISOString(),
             to: to.toISOString(),
-            keys: KEYS.map((k) => k.key).join(","),
+            keys: allKeys.join(","),
             group: "hour",
           });
           const data = await http<SeriesMap>(`/series?${qs.toString()}`);
@@ -129,12 +131,20 @@ export default function Panel() {
     const get = (k: string) => (series[k] ?? []).map((p) => p.v);
     const sum = (a: number[]) => a.reduce((x, y) => x + y, 0);
     const avg = (a: number[]) => (a.length ? sum(a) / a.length : 0);
+
+    // Luminosidad: suma total de lux, convertir a minutos de luz
+    // Asumiendo que cada registro es 1 minuto con ese nivel de lux
+    const luminosityData = get("luminosity_lx");
+    const totalLuminosityMinutes = luminosityData.length; // Total de minutos con luz registrados
+    const avgLuminosity = avg(luminosityData);
+
     return {
       rainfall_mm: Number(sum(get("rainfall_mm")).toFixed(1)),
       air_temp_c: Number(avg(get("air_temp_c")).toFixed(1)),
       air_humidity_pct: Number(avg(get("air_humidity_pct")).toFixed(0)),
       soil_moisture_pct: Number(avg(get("soil_moisture_pct")).toFixed(0)),
-      luminosity_lx: Number(avg(get("luminosity_lx")).toFixed(0)),
+      luminosity_lx: avgLuminosity, // Mantener el promedio para referencia
+      luminosity_minutes: totalLuminosityMinutes, // Total de minutos con luz
     };
   }, [series]);
 
@@ -280,7 +290,11 @@ export default function Panel() {
               <Kpi title="Temp. aire" value={`${fmt(summary.air_temp_c)} °C`} color="#f43f5e" />
               <Kpi title="Humedad relativa" value={`${fmt(summary.air_humidity_pct)} %`} color="#0ea5e9" />
               <Kpi title="Humedad del suelo" value={`${fmt(summary.soil_moisture_pct)} %`} color="#65a30d" />
-              <Kpi title="Luminosidad" value={`${fmt(summary.luminosity_lx)} lx`} color="#f59e0b" />
+              <Kpi
+                title="Horas de luz"
+                value={formatLuminosity(summary.luminosity_minutes)}
+                color="#f59e0b"
+              />
             </div>
 
             {/* Gráfica + leyenda clickeable */}
@@ -361,6 +375,23 @@ function Kpi({ title, value, color }: { title: string; value: string; color: str
 function fmt(n: number) {
   if (Math.abs(n) >= 1000) return new Intl.NumberFormat().format(Math.round(n));
   return String(n);
+}
+
+/** Formatea minutos de luz a horas o minutos según la cantidad */
+function formatLuminosity(minutes: number): string {
+  if (minutes === 0) return "0 min";
+  if (minutes < 60) return `${minutes} min`;
+
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+
+  if (remainingMinutes === 0) {
+    return `${hours} hrs`;
+  }
+
+  // Mostrar horas con decimales si hay minutos restantes
+  const decimalHours = (minutes / 60).toFixed(1);
+  return `${decimalHours} hrs`;
 }
 
 /** SVG simple para múltiples series; respeta "enabled" */
