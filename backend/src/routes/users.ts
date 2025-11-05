@@ -1,12 +1,12 @@
 // backend/src/routes/users.ts
 import { Router } from "express";
-import { PrismaClient } from "@prisma/client";
+// Prisma singleton imported from lib/db
 import bcrypt from "bcryptjs";
 import { requireAuth, requireRole } from "../middlewares/auth";
 import { sendWelcomeTempPassword } from "../utils/email";
 
 export const users = Router();
-const prisma = new PrismaClient();
+import { prisma } from "../lib/db";
 
 // EN/ES → guardamos SIEMPRE en ES
 function mapRoleInputToDBName(input?: string): "ADMINISTRADOR" | "VISUALIZADOR" {

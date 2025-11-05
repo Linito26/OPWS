@@ -1,9 +1,9 @@
 // src/routes/auth.routes.ts
 import { Router } from "express";
-import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import jwt, { type SignOptions } from "jsonwebtoken";
 import { requireAuth } from "../middlewares/auth";
+import { prisma } from "../lib/db";
 import {
   loginLimiter,
   passwordChangeLimiter,
@@ -11,7 +11,6 @@ import {
 } from "../config/security";
 
 export const auth = Router();
-const prisma = new PrismaClient();
 
 /* ===== helpers ===== */
 

@@ -12,9 +12,9 @@ import ChangePassword from "./pages/ChangePassword";
 
 // ADMIN
 import AdminLayout from "./pages/admin/AdminLayout";
-import AdminHome from "./pages/admin/AdminHome";           // portada de admin
+import AdminHome from "./pages/admin/AdminHome";
 import UsuariosList from "./pages/admin/UsuariosList";
-import AdminCrearUsuario from "./pages/AdminCrearUsuario"; // si lo moviste a /pages/admin cambia el import
+import AdminCrearUsuario from "./pages/admin/AdminCrearUsuario";
 
 function Landing() {
   const { isAuthenticated } = useAuth();
