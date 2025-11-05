@@ -4,13 +4,15 @@ import { prisma } from "../lib/db";
 
 export const series = Router();
 
+// Mapeo de claves UI a claves de base de datos
+// NOTA: Las claves en tipos_medicion usan nomenclatura inglesa (air_temp_c, rainfall_mm, etc.)
 const UI2DB: Record<string, { key: string; agg: "AVG" | "SUM" }> = {
-  rainfall_mm:       { key: "precipitacion_mm",     agg: "SUM" },
-  air_temp_c:        { key: "temp_aire_c",          agg: "AVG" },
-  air_humidity_pct:  { key: "humedad_relativa_pct", agg: "AVG" },
-  soil_moisture_pct: { key: "humedad_suelo_pct",    agg: "AVG" },
-  soil_temp_c:       { key: "temp_suelo_c",         agg: "AVG" },
-  luminosity_lx:     { key: "luminosidad_lx",       agg: "AVG" },
+  rainfall_mm:       { key: "rainfall_mm",       agg: "SUM" },
+  air_temp_c:        { key: "air_temp_c",        agg: "AVG" },
+  air_humidity_pct:  { key: "air_humidity_pct",  agg: "AVG" },
+  soil_moisture_pct: { key: "soil_moisture_pct", agg: "AVG" },
+  soil_temp_c:       { key: "soil_temp_c",       agg: "AVG" },
+  luminosity_lx:     { key: "luminosity_lx",     agg: "AVG" },
 };
 
 type Group = "raw" | "hour" | "day" | "week" | "month";
@@ -20,6 +22,14 @@ const parseISO = (v: unknown) => { const d = new Date(String(v??"")); if (isNaN(
 
 series.get("/series", async (req: Request, res: Response) => {
   try {
+    console.log("[/api/series] Request params:", {
+      estacionId: req.query.estacionId,
+      keys: req.query.keys,
+      from: req.query.from,
+      to: req.query.to,
+      group: req.query.group
+    });
+
     const estacionId = Number(req.query.estacionId);
     if (!Number.isInteger(estacionId) || estacionId <= 0) return res.status(400).json({ error: "estacionId inválido" });
     const from = parseISO(req.query.from);
@@ -37,6 +47,7 @@ series.get("/series", async (req: Request, res: Response) => {
       const m = UI2DB[ui]; if (!m) continue;
       dbKeys.add(m.key); uiByDB[m.key]=ui; aggByDB[m.key]=m.agg;
     }
+    console.log("[/api/series] Mapped keys - UI:", uiKeys, "-> DB:", Array.from(dbKeys));
     if (!dbKeys.size) return res.status(400).json({ error: "ninguna key mapeada a DB" });
 
     if (group === "raw") {
@@ -58,6 +69,7 @@ series.get("/series", async (req: Request, res: Response) => {
         const ui = uiByDB[r.clave_tipo] || r.clave_tipo;
         out[ui].push({ t: r.ts.toISOString(), v: Number(r.valor) });
       }
+      console.log("[/api/series] Query returned", rows.length, "raw rows for", Array.from(dbKeys).length, "types");
       return res.json(out);
     }
 
@@ -97,6 +109,7 @@ series.get("/series", async (req: Request, res: Response) => {
         max: Number(r.max_v)
       });
     }
+    console.log("[/api/series] Query returned", rows.length, "aggregated rows (", group, ") for", Array.from(dbKeys).length, "types");
     return res.json(out);
   } catch (e:any) {
     console.error("[/api/series] error:", e);
