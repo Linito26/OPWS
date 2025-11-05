@@ -1,7 +1,7 @@
 // src/pages/AdminCrearUsuario.tsx
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { http } from "../config/api";
+import { http } from "../../config/api";
 
 type RoleUI = "ADMINISTRADOR" | "VISUALIZADOR";
 type RoleAPI = "ADMIN" | "VIEWER";

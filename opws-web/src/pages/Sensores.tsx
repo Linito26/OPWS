@@ -10,18 +10,17 @@ import {
   Tooltip,
   Line,
   Area,
-  Brush,
   BarChart,
   Bar,
 } from "recharts";
 
 /* ===== catálogo de sensores ===== */
 const SENSORS = [
-  { key: "rainfall_mm",       label: "Precipitación",     unit: "mm",  color: "#059669", decimals: 2, chart: "bar"  as const },
-  { key: "air_temp_c",        label: "Temp. aire",        unit: "°C",  color: "#f43f5e", decimals: 2, chart: "line" as const },
-  { key: "air_humidity_pct",  label: "Humedad relativa",  unit: "%",   color: "#0ea5e9", decimals: 0, chart: "line" as const },
-  { key: "soil_moisture_pct", label: "Humedad del suelo", unit: "%",   color: "#65a30d", decimals: 0, chart: "line" as const },
-  { key: "luminosity_lx",     label: "Luminosidad",       unit: "min", color: "#f59e0b", decimals: 0, chart: "bar"  as const }, // minutos
+  { key: "rainfall_mm",       label: "Precipitación",     unit: "mm",  color: "#06b6d4", decimals: 2, chart: "bar"  as const },
+  { key: "air_temp_c",        label: "Temp. aire",        unit: "°C",  color: "#ef4444", decimals: 1, chart: "line" as const },
+  { key: "air_humidity_pct",  label: "Humedad relativa",  unit: "%",   color: "#3b82f6", decimals: 0, chart: "line" as const },
+  { key: "soil_moisture_pct", label: "Humedad del suelo", unit: "%",   color: "#84cc16", decimals: 0, chart: "line" as const },
+  { key: "luminosity_lx",     label: "Luminosidad",       unit: "min", color: "#f59e0b", decimals: 0, chart: "bar"  as const },
 ] as const;
 
 type SensorKey = typeof SENSORS[number]["key"];
@@ -370,17 +369,17 @@ export default function Sensores() {
 
               return (
                 <ChartCard
-                  key={s.key}
-                  title={`${s.label} (${finalUnit})`}
-                  unit={finalUnit}
-                  color={s.color}
-                  decimals={s.decimals}
-                  data={data}
-                  chart={s.chart}
-                  fileBase={`opws_${s.key}`}
-                  sensorKey={s.key}
-                  onExportSingle={() => exportSingleSensor(s.key)}
-                />
+                key={s.key}
+                title={`${s.label} (${finalUnit})`}
+                unit={finalUnit}
+                color={s.color}
+                decimals={s.decimals}
+                data={data}
+                chart={s.chart}
+                fileBase={`opws_${s.key}`}
+                onExportSingle={() => exportSingleSensor(s.key)}
+                estacionNombre={estaciones.find(e => e.id === estacionId)?.nombre || "OPWS"}
+              />
               );
             })}
             {Object.values(active).every(v => !v) && (
@@ -425,6 +424,33 @@ function RangePills({
   );
 }
 
+// Tooltip personalizado más profesional
+function CustomTooltip({ active, payload, label }: any) {
+  if (!active || !payload || !payload.length) return null;
+
+  const date = new Date(label);
+  const dateStr = date.toLocaleDateString("es-GT", { 
+    day: "2-digit", 
+    month: "short", 
+    year: "numeric" 
+  });
+  const timeStr = date.toLocaleTimeString("es-GT", { 
+    hour: "2-digit", 
+    minute: "2-digit" 
+  });
+
+  return (
+    <div className="bg-white/95 backdrop-blur-sm border border-neutral-200 rounded-lg shadow-lg px-4 py-3">
+      <p className="text-xs font-medium text-neutral-500 mb-1">
+        {dateStr} {timeStr}
+      </p>
+      <p className="text-sm font-semibold text-neutral-900">
+        {payload[0].name}: {payload[0].value}
+      </p>
+    </div>
+  );
+}
+
 function ChartCard({
   title,
   unit,
@@ -433,8 +459,8 @@ function ChartCard({
   data,
   chart = "line",
   fileBase = "opws_chart",
-  sensorKey,
   onExportSingle,
+  estacionNombre = "OPWS",
 }: {
   title: string;
   unit: string;
@@ -443,20 +469,23 @@ function ChartCard({
   data: { ts: number; value: number }[];
   chart?: "line" | "bar";
   fileBase?: string;
-  sensorKey?: SensorKey;
   onExportSingle?: () => void;
+  estacionNombre?: string;
 }) {
   const id = useMemo(() => `g${Math.random().toString(36).slice(2)}`, []);
+  const holderRef = useRef<HTMLDivElement>(null);
+
   const fmtTick = (ms: number) => {
     const d = new Date(ms);
     const dd = String(d.getDate()).padStart(2, "0");
     const mm = String(d.getMonth() + 1).padStart(2, "0");
     const hh = String(d.getHours()).padStart(2, "0");
-    return `${dd}/${mm} ${hh}h`;
+    const min = String(d.getMinutes()).padStart(2, "0");
+    return `${dd}/${mm} ${hh}:${min}`;
   };
+
   const fmtVal = (n: number) => (decimals === 0 ? Math.round(n) : Number(n).toFixed(decimals));
-  const barSize = Math.max(3, Math.min(18, Math.floor(600 / Math.max(1, data.length))));
-  const holderRef = useRef<HTMLDivElement>(null);
+  const barSize = Math.max(4, Math.min(20, Math.floor(800 / Math.max(1, data.length))));
 
   const downloadPNG = async () => {
     const svg = holderRef.current?.querySelector("svg");
@@ -470,13 +499,12 @@ function ChartCard({
     const img = new Image();
     img.onload = () => {
       const rect = svg.getBoundingClientRect();
-      const scale = 2; // @2x
+      const scale = 3;
       const canvas = document.createElement("canvas");
       canvas.width = Math.max(1, Math.round(rect.width * scale));
       canvas.height = Math.max(1, Math.round(rect.height * scale));
       const ctx = canvas.getContext("2d");
       if (!ctx) return;
-      // fondo blanco para evitar transparencias
       ctx.fillStyle = "#ffffff";
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
@@ -488,164 +516,245 @@ function ChartCard({
         a.click();
         URL.revokeObjectURL(a.href);
         URL.revokeObjectURL(url);
-      }, "image/png");
+      }, "image/png", 0.95);
     };
     img.onerror = () => URL.revokeObjectURL(url);
     img.src = url;
   };
 
-  // Obtener el nombre del sensor para el tooltip
-  const sensorConfig = sensorKey ? SENSORS.find(s => s.key === sensorKey) : null;
-  const sensorName = sensorConfig?.label || "";
+  // Calcular estadísticas
+  const stats = useMemo(() => {
+    if (!data.length) return null;
+    const values = data.map(d => d.value);
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    const avg = values.reduce((a, b) => a + b, 0) / values.length;
+    return { min, max, avg };
+  }, [data]);
 
   return (
-    <div className="rounded-2xl border border-neutral-200/80 bg-white/80 backdrop-blur-sm shadow-sm">
-      <div className="p-4 sm:p-5 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <h3 className="text-base sm:text-lg font-semibold text-neutral-900">{title}</h3>
-          {data.length > 0 && (
-            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-800">
-              {data.length} registros
-            </span>
-          )}
-        </div>
-        <div className="flex items-center gap-2">
-          {onExportSingle && data.length > 0 && (
+    <div className="rounded-2xl border border-neutral-200/60 bg-white shadow-sm overflow-hidden">
+      {/* Header */}
+      <div className="bg-linear-to-r from-neutral-50 to-white px-6 py-4 border-b border-neutral-100">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div 
+              className="w-1 h-8 rounded-full" 
+              style={{ backgroundColor: color }}
+            />
+            <div>
+              <h3 className="text-lg font-semibold text-neutral-900">{title}</h3>
+              <p className="text-xs text-neutral-500 mt-0.5">
+                {estacionNombre} • {data.length} registros
+              </p>
+            </div>
+          </div>
+          
+          <div className="flex items-center gap-2">
+            {stats && (
+              <div className="hidden sm:flex items-center gap-4 mr-4 text-xs">
+                <div className="text-center">
+                  <p className="text-neutral-500">Mín</p>
+                  <p className="font-semibold text-neutral-900">
+                    {fmtVal(stats.min)} {unit}
+                  </p>
+                </div>
+                <div className="text-center">
+                  <p className="text-neutral-500">Prom</p>
+                  <p className="font-semibold text-neutral-900">
+                    {fmtVal(stats.avg)} {unit}
+                  </p>
+                </div>
+                <div className="text-center">
+                  <p className="text-neutral-500">Máx</p>
+                  <p className="font-semibold text-neutral-900">
+                    {fmtVal(stats.max)} {unit}
+                  </p>
+                </div>
+              </div>
+            )}
+            
+            {onExportSingle && data.length > 0 && (
+              <button
+                onClick={onExportSingle}
+                className="px-3 py-1.5 text-xs font-medium rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition-colors border border-emerald-200"
+                title="Exportar a Excel"
+              >
+                📊 Excel
+              </button>
+            )}
             <button
-              onClick={onExportSingle}
-              className="px-2.5 py-1.5 text-xs rounded-md border border-emerald-500 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition"
-              title={`Exportar solo ${sensorName}`}
+              onClick={downloadPNG}
+              className="px-3 py-1.5 text-xs font-medium rounded-lg bg-white hover:bg-neutral-50 transition-colors border border-neutral-200"
+              title="Descargar PNG"
             >
-              Exportar Excel
+              📷 PNG
             </button>
-          )}
-          <button
-            onClick={downloadPNG}
-            className="px-2.5 py-1.5 text-xs rounded-md border bg-white hover:bg-neutral-50"
-            title="Descargar PNG"
-          >
-            PNG
-          </button>
-          <span className="w-2.5 h-2.5 rounded-full" style={{ background: color }} />
+          </div>
         </div>
       </div>
 
-      <div ref={holderRef} className="px-3 sm:px-4 pb-4">
+      {/* Gráfica */}
+      <div ref={holderRef} className="p-6 relative">
+        {/* Marca de agua */}
+        <div className="absolute top-8 right-8 text-neutral-200 font-bold text-sm tracking-wider select-none pointer-events-none z-10">
+          {estacionNombre.toUpperCase()}
+        </div>
+
         {data.length === 0 ? (
-          <div className="h-[220px] grid place-items-center text-neutral-400 text-sm">Sin datos</div>
+          <div className="h-80 grid place-items-center">
+            <div className="text-center">
+              <div className="w-16 h-16 mx-auto mb-3 rounded-full bg-neutral-100 grid place-items-center">
+                <svg className="w-8 h-8 text-neutral-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                </svg>
+              </div>
+              <p className="text-sm text-neutral-500">Sin datos en el rango seleccionado</p>
+            </div>
+          </div>
         ) : (
-          <div className="w-full h-80">
+          <div className="w-full h-96">
             <ResponsiveContainer width="100%" height="100%">
               {chart === "bar" ? (
-                <BarChart data={data} margin={{ top: 10, right: 12, bottom: 0, left: 6 }}>
+                <BarChart 
+                  data={data} 
+                  margin={{ top: 20, right: 40, bottom: 20, left: 10 }}
+                >
                   <defs>
-                    <linearGradient id={id} x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor={color} stopOpacity={0.9} />
-                      <stop offset="100%" stopColor={color} stopOpacity={0.15} />
+                    <linearGradient id={`${id}-bar`} x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor={color} stopOpacity={0.85} />
+                      <stop offset="95%" stopColor={color} stopOpacity={0.3} />
                     </linearGradient>
                   </defs>
 
-                  <CartesianGrid stroke="#e5e7eb" vertical={false} />
+                  <CartesianGrid 
+                    stroke="#e5e7eb" 
+                    strokeDasharray="3 3" 
+                    vertical={false}
+                    opacity={0.5}
+                  />
                   <XAxis
                     dataKey="ts"
                     type="number"
                     domain={["dataMin", "dataMax"]}
                     tickFormatter={fmtTick}
-                    stroke="#6b7280"
-                    tick={{ fontSize: 12 }}
+                    stroke="#9ca3af"
+                    tick={{ fontSize: 11, fill: "#6b7280" }}
+                    tickLine={{ stroke: "#d1d5db" }}
                   />
                   <YAxis
                     dataKey="value"
-                    width={56}
-                    stroke="#6b7280"
-                    tick={{ fontSize: 12 }}
+                    width={60}
+                    stroke="#9ca3af"
+                    tick={{ fontSize: 11, fill: "#6b7280" }}
+                    tickLine={{ stroke: "#d1d5db" }}
+                    tickFormatter={(v) => `${fmtVal(v)}`}
                     allowDecimals
-                    allowDataOverflow
                   />
-                  <Tooltip
-                    contentStyle={{ borderRadius: 10, borderColor: "#e5e7eb" }}
-                    labelFormatter={(label) => new Date(Number(label)).toLocaleString()}
-                    formatter={(v: any) => [`${fmtVal(Number(v))} ${unit}`, title]}
+                  <Tooltip 
+                    content={<CustomTooltip />}
+                    cursor={{ fill: "rgba(0,0,0,0.05)" }}
                   />
                   <Bar
                     dataKey="value"
-                    fill={`url(#${id})`}
+                    fill={`url(#${id}-bar)`}
                     stroke={color}
-                    strokeWidth={1}
-                    radius={[4, 4, 0, 0]}
+                    strokeWidth={1.5}
+                    radius={[6, 6, 0, 0]}
                     barSize={barSize}
                     isAnimationActive={false}
-                  />
-                  <Brush
-                    dataKey="ts"
-                    travellerWidth={8}
-                    height={28}
-                    stroke="#a3a3a3"
-                    tickFormatter={fmtTick}
+                    name={`${title}`}
                   />
                 </BarChart>
               ) : (
-                <LineChart data={data} margin={{ top: 10, right: 12, bottom: 0, left: 6 }}>
+                <LineChart 
+                  data={data} 
+                  margin={{ top: 20, right: 40, bottom: 20, left: 10 }}
+                >
                   <defs>
-                    <linearGradient id={id} x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor={color} stopOpacity={0.28} />
-                      <stop offset="100%" stopColor={color} stopOpacity={0} />
+                    <linearGradient id={`${id}-area`} x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor={color} stopOpacity={0.2} />
+                      <stop offset="95%" stopColor={color} stopOpacity={0.01} />
                     </linearGradient>
+                    <filter id={`${id}-shadow`}>
+                      <feDropShadow dx="0" dy="1" stdDeviation="1" floodOpacity="0.15" />
+                    </filter>
                   </defs>
 
-                  <CartesianGrid stroke="#e5e7eb" vertical={false} />
+                  <CartesianGrid 
+                    stroke="#e5e7eb" 
+                    strokeDasharray="3 3" 
+                    vertical={false}
+                    opacity={0.5}
+                  />
                   <XAxis
                     dataKey="ts"
                     type="number"
                     domain={["dataMin", "dataMax"]}
                     tickFormatter={fmtTick}
-                    stroke="#6b7280"
-                    tick={{ fontSize: 12 }}
+                    stroke="#9ca3af"
+                    tick={{ fontSize: 11, fill: "#6b7280" }}
+                    tickLine={{ stroke: "#d1d5db" }}
                   />
                   <YAxis
                     dataKey="value"
-                    width={56}
-                    stroke="#6b7280"
-                    tick={{ fontSize: 12 }}
+                    width={60}
+                    stroke="#9ca3af"
+                    tick={{ fontSize: 11, fill: "#6b7280" }}
+                    tickLine={{ stroke: "#d1d5db" }}
+                    tickFormatter={(v) => `${fmtVal(v)}`}
                     allowDecimals
-                    allowDataOverflow
                   />
-                  <Tooltip
-                    contentStyle={{ borderRadius: 10, borderColor: "#e5e7eb" }}
-                    labelFormatter={(label) => new Date(Number(label)).toLocaleString()}
-                    formatter={(v: any) => [`${fmtVal(Number(v))} ${unit}`, title]}
+                  <Tooltip 
+                    content={<CustomTooltip />}
+                    cursor={{ stroke: color, strokeWidth: 1, strokeDasharray: "5 5" }}
                   />
-                  <Area type="monotone" dataKey="value" fill={`url(#${id})`} stroke="none" isAnimationActive={false} />
+                  <Area 
+                    type="monotone" 
+                    dataKey="value" 
+                    fill={`url(#${id}-area)`} 
+                    stroke="none" 
+                    isAnimationActive={false}
+                  />
                   <Line
                     type="monotone"
                     dataKey="value"
                     stroke={color}
-                    strokeWidth={2}
-                    dot={{ r: 2 }}
-                    activeDot={{ r: 4 }}
+                    strokeWidth={3}
+                    dot={false}
+                    activeDot={{ 
+                      r: 5, 
+                      fill: color,
+                      stroke: "#fff",
+                      strokeWidth: 2
+                    }}
                     isAnimationActive={false}
-                  />
-                  <Brush
-                    dataKey="ts"
-                    travellerWidth={8}
-                    height={28}
-                    stroke="#a3a3a3"
-                    tickFormatter={fmtTick}
+                    name={`${title}`}
+                    filter={`url(#${id}-shadow)`}
                   />
                 </LineChart>
               )}
             </ResponsiveContainer>
           </div>
         )}
-
-        <div className="mt-2 text-xs text-neutral-500">
-          {data.length ? `Muestras: ${data.length}` : "Sin datos en el rango seleccionado"}
-        </div>
       </div>
+
+      {/* Footer con info adicional */}
+      {data.length > 0 && (
+        <div className="px-6 py-3 bg-neutral-50/50 border-t border-neutral-100">
+          <div className="flex items-center justify-between text-xs text-neutral-500">
+            <div>
+              Periodo: {new Date(data[0].ts).toLocaleDateString("es-GT")} - {new Date(data[data.length - 1].ts).toLocaleDateString("es-GT")}
+            </div>
+            <div>
+              Última actualización: {new Date(data[data.length - 1].ts).toLocaleString("es-GT")}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
-
 /* ====== utilidades ====== */
 
 function isoDateDaysAgo(days: number) {
