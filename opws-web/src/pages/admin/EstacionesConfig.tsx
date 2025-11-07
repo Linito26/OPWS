@@ -20,7 +20,18 @@ type Estacion = {
   latitud: any; // Puede venir como Decimal desde Prisma
   longitud: any; // Puede venir como Decimal desde Prisma
   activo: boolean;
+  elevacion_m?: any;
+  notas?: string | null;
 };
+
+// Variables disponibles (tipos de medición)
+const VARIABLES_DISPONIBLES = [
+  { key: "rainfall_mm", label: "Precipitación (mm)" },
+  { key: "air_temp_c", label: "Temperatura del aire (°C)" },
+  { key: "air_humidity_pct", label: "Humedad relativa (%)" },
+  { key: "soil_moisture_pct", label: "Humedad del suelo (%)" },
+  { key: "luminosity_lx", label: "Luminosidad (lx)" },
+];
 
 // Helper para convertir Decimal/string a number de forma segura
 function toNum(val: any): number | null {
@@ -39,6 +50,21 @@ export default function EstacionesConfig() {
 
   // Posición temporal para el mapa
   const [mapPosition, setMapPosition] = useState<{ lat: number; lng: number } | null>(null);
+
+  // Estado para modal de creación de estación
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [newEstacion, setNewEstacion] = useState({
+    nombre: "",
+    codigo: "",
+    latitud: "",
+    longitud: "",
+    elevacion_m: "",
+    notas: "",
+    activo: true,
+  });
+  const [selectedVariables, setSelectedVariables] = useState<Record<string, boolean>>(
+    Object.fromEntries(VARIABLES_DISPONIBLES.map(v => [v.key, true]))
+  );
 
   useEffect(() => {
     loadEstaciones();
@@ -140,17 +166,86 @@ export default function EstacionesConfig() {
     );
   }
 
+  async function handleCreateEstacion() {
+    if (!newEstacion.nombre.trim()) {
+      setErr("El nombre de la estación es obligatorio.");
+      return;
+    }
+
+    setSaving(true);
+    setErr(null);
+    setSuccess(null);
+
+    try {
+      const body = {
+        nombre: newEstacion.nombre.trim(),
+        codigo: newEstacion.codigo.trim() || null,
+        latitud: newEstacion.latitud ? Number(newEstacion.latitud) : null,
+        longitud: newEstacion.longitud ? Number(newEstacion.longitud) : null,
+        elevacion_m: newEstacion.elevacion_m ? Number(newEstacion.elevacion_m) : null,
+        notas: newEstacion.notas.trim() || null,
+        activo: newEstacion.activo,
+      };
+
+      const response = await http<{ success: boolean; estacion: Estacion }>("/admin/estaciones", {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+
+      if (response?.success && response?.estacion) {
+        // Agregar la nueva estación a la lista
+        setEstaciones((prev) => [...prev, response.estacion]);
+
+        // Seleccionar la nueva estación
+        setSelectedId(response.estacion.id);
+
+        // Resetear formulario
+        setNewEstacion({
+          nombre: "",
+          codigo: "",
+          latitud: "",
+          longitud: "",
+          elevacion_m: "",
+          notas: "",
+          activo: true,
+        });
+
+        // Resetear variables seleccionadas
+        setSelectedVariables(
+          Object.fromEntries(VARIABLES_DISPONIBLES.map(v => [v.key, true]))
+        );
+
+        setShowCreateModal(false);
+        setSuccess(`Estación "${response.estacion.nombre}" creada correctamente.`);
+      }
+    } catch (e: any) {
+      setErr(e?.message || "No se pudo crear la estación.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <div className="space-y-6">
       {/* Selector de estación */}
       <div className="rounded-2xl border border-neutral-200/80 bg-white/80 backdrop-blur-sm shadow-sm">
         <div className="p-5 sm:p-6 border-b">
-          <h3 className="text-lg font-semibold text-neutral-900 mb-1">
-            Configurar ubicación de estaciones
-          </h3>
-          <p className="text-sm text-neutral-500">
-            Selecciona una estación y define su ubicación en el mapa.
-          </p>
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+            <div>
+              <h3 className="text-lg font-semibold text-neutral-900 mb-1">
+                Configurar ubicación de estaciones
+              </h3>
+              <p className="text-sm text-neutral-500">
+                Selecciona una estación y define su ubicación en el mapa.
+              </p>
+            </div>
+            <button
+              onClick={() => setShowCreateModal(true)}
+              className="px-4 py-2 text-sm rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 transition-colors whitespace-nowrap"
+            >
+              ➕ Crear Nueva Estación
+            </button>
+          </div>
         </div>
 
         <div className="p-5 sm:p-6">
@@ -244,6 +339,172 @@ export default function EstacionesConfig() {
           )}
         </div>
       </div>
+
+      {/* Modal de creación de estación */}
+      {showCreateModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-5 sm:p-6 border-b sticky top-0 bg-white">
+              <h3 className="text-lg font-semibold text-neutral-900">
+                Crear Nueva Estación
+              </h3>
+              <p className="text-sm text-neutral-500">
+                Completa la información de la nueva estación meteorológica.
+              </p>
+            </div>
+
+            <div className="p-5 sm:p-6 space-y-4">
+              {/* Nombre */}
+              <div>
+                <label className="block text-sm font-medium text-neutral-700 mb-1">
+                  Nombre de la estación <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={newEstacion.nombre}
+                  onChange={(e) => setNewEstacion({ ...newEstacion, nombre: e.target.value })}
+                  placeholder="Ej: Estación Central"
+                  className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500/30"
+                />
+              </div>
+
+              {/* Código */}
+              <div>
+                <label className="block text-sm font-medium text-neutral-700 mb-1">
+                  Código (opcional)
+                </label>
+                <input
+                  type="text"
+                  value={newEstacion.codigo}
+                  onChange={(e) => setNewEstacion({ ...newEstacion, codigo: e.target.value })}
+                  placeholder="Ej: EST-01"
+                  className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500/30"
+                />
+              </div>
+
+              {/* Coordenadas */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-neutral-700 mb-1">
+                    Latitud
+                  </label>
+                  <input
+                    type="number"
+                    step="0.000001"
+                    value={newEstacion.latitud}
+                    onChange={(e) => setNewEstacion({ ...newEstacion, latitud: e.target.value })}
+                    placeholder="Ej: 15.726"
+                    className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500/30"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-neutral-700 mb-1">
+                    Longitud
+                  </label>
+                  <input
+                    type="number"
+                    step="0.000001"
+                    value={newEstacion.longitud}
+                    onChange={(e) => setNewEstacion({ ...newEstacion, longitud: e.target.value })}
+                    placeholder="Ej: -88.599"
+                    className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500/30"
+                  />
+                </div>
+              </div>
+
+              {/* Elevación */}
+              <div>
+                <label className="block text-sm font-medium text-neutral-700 mb-1">
+                  Elevación (metros)
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={newEstacion.elevacion_m}
+                  onChange={(e) => setNewEstacion({ ...newEstacion, elevacion_m: e.target.value })}
+                  placeholder="Ej: 1500"
+                  className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500/30"
+                />
+              </div>
+
+              {/* Variables disponibles */}
+              <div>
+                <label className="block text-sm font-medium text-neutral-700 mb-2">
+                  Variables a medir
+                </label>
+                <div className="space-y-2">
+                  {VARIABLES_DISPONIBLES.map((variable) => (
+                    <label key={variable.key} className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={selectedVariables[variable.key]}
+                        onChange={(e) =>
+                          setSelectedVariables({
+                            ...selectedVariables,
+                            [variable.key]: e.target.checked,
+                          })
+                        }
+                        className="w-4 h-4 text-emerald-600 rounded focus:ring-2 focus:ring-emerald-500/30"
+                      />
+                      <span className="text-sm text-neutral-700">{variable.label}</span>
+                    </label>
+                  ))}
+                </div>
+                <p className="mt-2 text-xs text-neutral-500">
+                  Selecciona las variables que esta estación podrá medir
+                </p>
+              </div>
+
+              {/* Notas */}
+              <div>
+                <label className="block text-sm font-medium text-neutral-700 mb-1">
+                  Notas (opcional)
+                </label>
+                <textarea
+                  value={newEstacion.notas}
+                  onChange={(e) => setNewEstacion({ ...newEstacion, notas: e.target.value })}
+                  placeholder="Información adicional sobre la estación..."
+                  rows={3}
+                  className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500/30"
+                />
+              </div>
+
+              {/* Activo */}
+              <div>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={newEstacion.activo}
+                    onChange={(e) => setNewEstacion({ ...newEstacion, activo: e.target.checked })}
+                    className="w-4 h-4 text-emerald-600 rounded focus:ring-2 focus:ring-emerald-500/30"
+                  />
+                  <span className="text-sm text-neutral-700">Estación activa</span>
+                </label>
+              </div>
+            </div>
+
+            <div className="p-5 sm:p-6 border-t flex gap-3 justify-end">
+              <button
+                onClick={() => {
+                  setShowCreateModal(false);
+                  setErr(null);
+                }}
+                disabled={saving}
+                className="px-4 py-2 text-sm rounded-lg bg-neutral-100 text-neutral-700 hover:bg-neutral-200 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleCreateEstacion}
+                disabled={saving || !newEstacion.nombre.trim()}
+                className="px-4 py-2 text-sm rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {saving ? "Creando..." : "Crear Estación"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

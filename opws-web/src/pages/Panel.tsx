@@ -336,9 +336,9 @@ export default function Panel() {
               <div className="mt-3">
                 <MapStations
                   center={center}
-                  stations={mapMarkers}
+                  stations={mapMarkers.filter(m => m.id === estacionId)}
                   height={360}
-                  base="satellite"
+                  base="streets"
                   showLayerToggle
                 />
                 {center ? (
@@ -425,6 +425,10 @@ function ChartMulti({
       .sort((a, b) => +new Date(a.t) - +new Date(b.t))
       .map((p, i) => `${i ? "L" : "M"} ${x(p.t).toFixed(1)} ${y(p.v).toFixed(1)}`)
       .join(" ");
+
+  // Calcular ancho de barra para precipitación
+  const barWidth = (width - pad * 2) / Math.max(1, allVisible.length / visibleKeys.length);
+
   return (
     <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-[280px]" id="panel-chart-svg">
       <g stroke="#e5e7eb" strokeWidth="1">
@@ -435,29 +439,40 @@ function ChartMulti({
       {KEYS.map(({ key, color }) =>
         enabled[key] && (series[key] ?? []).length ? (
           <g key={key}>
-            <path
-              d={pathFor(series[key] as any)}
-              fill="none"
-              stroke={color}
-              strokeWidth={2}
-              strokeLinejoin="round"
-              strokeLinecap="round"
-            />
-            {/* Marcadores en cada punto */}
-            {(series[key] as Point[])
-              .slice()
-              .sort((a, b) => +new Date(a.t) - +new Date(b.t))
-              .map((p, i) => (
-                <circle
-                  key={`${key}-${i}`}
-                  cx={x(p.t)}
-                  cy={y(p.v)}
-                  r={3}
-                  fill={color}
-                  stroke="#fff"
-                  strokeWidth={1.5}
-                />
-              ))}
+            {/* Mostrar precipitación como barras */}
+            {key === "rainfall_mm" ? (
+              (series[key] as Point[])
+                .slice()
+                .sort((a, b) => +new Date(a.t) - +new Date(b.t))
+                .map((p, i) => {
+                  const xPos = x(p.t);
+                  const yPos = y(p.v);
+                  const barHeight = height - pad - yPos;
+                  return (
+                    <rect
+                      key={`${key}-bar-${i}`}
+                      x={xPos - barWidth * 0.3}
+                      y={yPos}
+                      width={barWidth * 0.6}
+                      height={barHeight}
+                      fill={color}
+                      fillOpacity={0.7}
+                      stroke={color}
+                      strokeWidth={1}
+                    />
+                  );
+                })
+            ) : (
+              /* Mostrar otras variables como líneas sin marcadores */
+              <path
+                d={pathFor(series[key] as any)}
+                fill="none"
+                stroke={color}
+                strokeWidth={2}
+                strokeLinejoin="round"
+                strokeLinecap="round"
+              />
+            )}
           </g>
         ) : null
       )}

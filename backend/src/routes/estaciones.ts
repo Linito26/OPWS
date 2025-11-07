@@ -115,6 +115,73 @@ estaciones.put("/:id", async (req, res, next) => {
 
 export const estacionesAdmin = Router();
 
+// POST / - Crear nueva estación
+estacionesAdmin.post("/", requireRole(["ADMINISTRADOR", "ADMIN"]), async (req, res, next) => {
+  try {
+    const { nombre, codigo, latitud, longitud, elevacion_m, notas, activo, zonaHoraria } = req.body;
+
+    // Validación: nombre es obligatorio
+    const nombreTrim = String(nombre || "").trim();
+    if (!nombreTrim) {
+      return res.status(400).json({ error: "El nombre de la estación es obligatorio" });
+    }
+
+    // Preparar datos
+    const dataToCreate: any = {
+      nombre: nombreTrim,
+      codigo: codigo ? String(codigo).trim() : null,
+      activo: activo !== undefined ? Boolean(activo) : true,
+      zonaHoraria: zonaHoraria || "UTC",
+    };
+
+    // Validar latitud si se proporciona
+    if (latitud !== undefined && latitud !== null && latitud !== "") {
+      const lat = Number(latitud);
+      if (isNaN(lat) || lat < -90 || lat > 90) {
+        return res.status(400).json({ error: "Latitud inválida (debe estar entre -90 y 90)" });
+      }
+      dataToCreate.latitud = lat;
+    }
+
+    // Validar longitud si se proporciona
+    if (longitud !== undefined && longitud !== null && longitud !== "") {
+      const lng = Number(longitud);
+      if (isNaN(lng) || lng < -180 || lng > 180) {
+        return res.status(400).json({ error: "Longitud inválida (debe estar entre -180 y 180)" });
+      }
+      dataToCreate.longitud = lng;
+    }
+
+    // Validar elevación si se proporciona
+    if (elevacion_m !== undefined && elevacion_m !== null && elevacion_m !== "") {
+      const elev = Number(elevacion_m);
+      if (!isNaN(elev)) {
+        dataToCreate.elevacion_m = elev;
+      }
+    }
+
+    // Notas opcionales
+    if (notas) {
+      dataToCreate.notas = String(notas).trim();
+    }
+
+    // Crear en la base de datos
+    const nuevaEstacion = await prisma.estacion.create({
+      data: dataToCreate,
+    });
+
+    res.status(201).json({
+      success: true,
+      estacion: nuevaEstacion,
+    });
+  } catch (e: any) {
+    if (e?.code === "P2002") {
+      return res.status(409).json({ error: "El código de estación ya existe" });
+    }
+    next(e);
+  }
+});
+
 estacionesAdmin.put("/:id", requireRole(["ADMINISTRADOR", "ADMIN"]), async (req, res, next) => {
   try {
     const id = Number(req.params.id);
