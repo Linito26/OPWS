@@ -22,3 +22,10 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Testing
+test-results/
+playwright-report/
+downloads/
+k6/results/*.json
+!k6/results/.gitkeep

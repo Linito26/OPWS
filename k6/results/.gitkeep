@@ -1,0 +1,2 @@
+# Este directorio almacena los resultados de las pruebas de estrés con k6
+# Los archivos generados tienen el formato: stress-test-YYYY-MM-DD-HHmm.json
