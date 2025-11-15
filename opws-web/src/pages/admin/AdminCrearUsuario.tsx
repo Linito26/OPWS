@@ -97,12 +97,12 @@ export default function AdminCrearUsuario() {
         )}
 
         <div>
-          <label className="block text-sm font-medium mb-1">Usuario (opcional)</label>
+          <label className="block text-sm font-medium mb-1">Usuario </label>
           <input
             className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500/30"
             value={username}
             onChange={(e) => setUsername(e.target.value)}
-            placeholder="ej. jdoe"
+            placeholder="ej. juanito26"
           />
         </div>
 
@@ -114,7 +114,7 @@ export default function AdminCrearUsuario() {
             className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500/30"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            placeholder="tucorreo@dominio.com"
+            placeholder="ej. tucorreo@gmail.com"
           />
         </div>
 
